@@ -7,7 +7,7 @@ from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcl
 from utils.inference.save_result import save_result
 
 if __name__ == "__main__":
-    # 现在用的啥数据 [todo] 自动化
+    # 现在用的啥数据
     """
     DY          董远9月25
     DY_ML       董远11月21号的多层数据
