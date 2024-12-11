@@ -1,9 +1,10 @@
+import einops
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
 import torch_geometric
-import einops
+from torch import Tensor
+
 
 class ScaledDotProductAttention(nn.Module):
     """Scaled Dot-Product Attention"""

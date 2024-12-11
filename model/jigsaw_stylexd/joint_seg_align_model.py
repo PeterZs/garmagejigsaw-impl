@@ -1,8 +1,3 @@
-"""
-V6-7，全局+局部特征
-"""
-
-
 import torch
 import torch.nn.functional as F
 import torchmetrics
@@ -64,8 +59,6 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         # 分阶段学习 -----------------------------------------------------------------------------------------------------
         self.is_train_in_stages = self.cfg.MODEL.get("IS_TRAIN_IN_STAGE", False)  # 是否分阶段学习
         self.init_dynamic_adjustment()  # 分阶段学习的初始化
-
-
 
 
 
