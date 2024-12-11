@@ -67,22 +67,26 @@ def cal_stitch_edge_param_dis(stitch_edge, all_panel_info):
                       end_point['global_param'] - panel_info['param_start'])
     return param_dis
 
-# 计算一个环上的两个点之间的双向param_dis(仅用于计算较近的点之间的距离)
-def cal_neigbor_points_param_dis(start_point, end_point, all_panel_info):
+
+
+
+# 计算一个环上的两个点之间的双向index_dis(仅用于计算较近的点之间的距离)
+def cal_neigbor_points_index_dis(start_point, end_point, all_panel_info):
     panel_info = all_panel_info[start_point['panel_id']]
     if start_point['panel_id']!=end_point['panel_id']:
         return None
-    if end_point['global_param'] >= start_point['global_param']:
+    if end_point['id'] >= start_point['id']:
         param_dis=[
-          panel_info['param_end'] - start_point['global_param'] + end_point['global_param'] - panel_info['param_start'],
-          end_point['global_param'] - start_point['global_param']
+          panel_info['index_end'] - start_point['id'] + end_point['id'] - panel_info['index_start'],
+          end_point['id'] - start_point['id']
         ]
     else:
         param_dis = [
-          start_point['global_param'] - end_point['global_param'],
-          panel_info['param_end'] - start_point['global_param'] + end_point['global_param'] - panel_info['param_start']
+          start_point['id'] - end_point['id'],
+          panel_info['index_end'] - start_point['id'] + end_point['id'] - panel_info['index_start']
         ]
     return param_dis
+
 
 def optimize_stitch_edge_list_paramOrder(stitch_edge_list_paramOrder, param_dis_optimize_thresh, all_panel_info):
     # [todo] 让param_dis_optimize_thresh根据所属边上的点数进行相应的变化（边越长越接近原本的数，越短越倾向于让两个边的邻近点去合并）
@@ -238,10 +242,15 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
         all_panel_info[panel_json["id"]] = {"id":panel_json["id"], "edges_info":{}}
         panel_info = all_panel_info[panel_json["id"]]
         panel_info["param_start"] = global_param  # 这个Panel的param的最小值
+        panel_info["param_end"] = []
+        panel_info["index_end"] = point_end_idx-1
+        panel_info["index_start"] = point_start_idx if isinstance(point_start_idx,torch.Tensor) \
+                                    else torch.tensor(point_start_idx,
+                                                        dtype=point_end_idx.dtype,device=point_end_idx.device)
         for edge_idx, (e_approx, e_approx_global) in enumerate(zip(panel_edges_approx, panel_edges_approx_global)):
             # ===== 构建每个Edge的信息 =====
             edge_json = panel_json["seqEdges"][0]["edges"][edge_idx]
-            all_edge_info[edge_json["id"]] = {"id":edge_json["id"], "panel_id":panel_info["id"], "points_info":[], "points_index":None}
+            all_edge_info[edge_json["id"]] = {"id":edge_json["id"], "panel_id":panel_info["id"], "points_info":[]}
             edge_info = all_edge_info[edge_json["id"]]
             panel_info["edges_info"][edge_json["id"]] = edge_info
 
@@ -251,10 +260,10 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
                 edge_points_idx.to(device_)
             else:
                 edge_points_idx = torch.arange(e_approx_global[0], e_approx_global[1]+1)
-            edge_info["points_index"] = edge_points_idx
             # 这个边的param的最小值
             edge_info["param_start"] = global_param
-
+            edge_info["index_start"] = min(edge_points_idx)
+            edge_info["index_end"] = max(edge_points_idx)
             for idx, point_idx in enumerate(edge_points_idx):
                 # ===== 构建每个Point的信息 =====
                 # 计算当前点的param (我添加了一个很小的offset来防止一些报错，并且这些offset会在后续处理中被修复)
@@ -264,7 +273,6 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
                 point_info = {"id": point_idx, "panel_id": panel_info["id"], "edge_id": edge_info["id"],
                               "param": param, "global_param": global_param + param}
                 edge_info["points_info"].append(point_info)
-
                 pt_key = point_idx.tolist()
                 if not pt_key in all_point_info.keys():
                     all_point_info[pt_key] = [point_info]
@@ -276,6 +284,7 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
 
         # 这个Panel的param的最大值
         panel_info["param_end"] = global_param
+
 
     # 将信息转换为N个由缝合点对组成的list ------------------------------------------------------------------------------------
     # 缝合关系的映射
@@ -377,6 +386,7 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
                         if trigger:
                             # 计算之间的双向param_dis
                             param_dis_d = cal_neigbor_points_param_dis(stitch_points_list[-1][1][0], point_info_cor[0], all_panel_info)
+
                             param_dis_mask = np.array(param_dis_d)<thresh_side_dis
                             # 如果两边的距离都超出了阈值
                             if np.sum(param_dis_mask)==0:
