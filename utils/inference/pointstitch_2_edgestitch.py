@@ -68,6 +68,22 @@ def cal_stitch_edge_param_dis(stitch_edge, all_panel_info):
     return param_dis
 
 
+# 计算一个环上的两个点之间的双向param_dis(仅用于计算较近的点之间的距离)
+def cal_neigbor_points_param_dis(start_point, end_point, all_panel_info):
+    panel_info = all_panel_info[start_point['panel_id']]
+    if start_point['panel_id']!=end_point['panel_id']:
+        return None
+    if end_point['global_param'] >= start_point['global_param']:
+        index_dis=[
+          panel_info['param_end'] - start_point['global_param'] + end_point['global_param'] - panel_info['param_start'],
+          end_point['global_param'] - start_point['global_param']
+        ]
+    else:
+        index_dis = [
+          start_point['global_param'] - end_point['global_param'],
+          panel_info['param_end'] - start_point['global_param'] + end_point['global_param'] - panel_info['param_start']
+        ]
+    return index_dis
 
 
 # 计算一个环上的两个点之间的双向index_dis(仅用于计算较近的点之间的距离)
@@ -555,11 +571,10 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
         stitch_edge_end["target_edge"] = stitch_edge_start
         stitch_edge_list.append(stitch_edge_start)
         stitch_edge_list.append(stitch_edge_end)
-
-
-    # 优化相邻缝合的param -------------------------------------------------------------------------------------------------
     # 按所在板片进行排序后的 stitch_edge_list
     stitch_edge_list_panelOrder = sorted(stitch_edge_list, key=lambda x: (x["start_point"]["panel_id"],))
+
+    # 优化相邻缝合的param -------------------------------------------------------------------------------------------------
     stitch_edge_list_paramOrder = []
     start_edge_id = stitch_edge_list_panelOrder[0]["start_point"]["panel_id"]
     for e_idx, stitch_edge in enumerate(stitch_edge_list_panelOrder):
@@ -596,7 +611,6 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
     # 将长度特别短的缝边删除 ------------------------------------------------------------------------------------------------
     # 计算缝边的长度 [todo]这一步有点问题，删不干净
     thresh = 0.08
-
     filtered_stitch_edge_list = []
     for start_stitch_edge, end_stitch_edge in zip(stitch_edge_list[::2], stitch_edge_list[1::2]):
         # [modified]
