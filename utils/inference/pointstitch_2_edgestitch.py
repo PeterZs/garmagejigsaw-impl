@@ -167,35 +167,37 @@ def optimize_stitch_edge_list(stitch_edge_list_paramOrder, index_dis_optimize_th
         param_dis = param_dis_2side[min_dis_index]
 
         # 设定阈值，根据采样频率delta来动态调整阈值的大小 ---------------------------------------------------------------------------------
-        index_dis_optimize_thresh = 8   # 优化缝边之间距离的阈值（间距小于这一阈值的一对缝边，它们之间的端点会被优化）
-        index_dis_side_thresh = 4       # 缝边与边端点之间的阈值（小于阈值的缝边的端点将在优化时吸附到边的端点上）
+        index_dis_optimize_thresh = 12   # 优化缝边之间距离的阈值（间距小于这一阈值的一对缝边，它们之间的端点会被优化）
+        index_dis_side_thresh = 3       # 缝边与边端点之间的阈值（小于阈值的缝边的端点将在优化时吸附到边的端点上）
         adjust_param = 0.023 / 0.023  # 这个用于根据采样频率调整阈值的大小 [todo] 看到那个 “0.023/0.023” 了吗？后续需要在这里将采样频率考虑进来
         index_dis_optimize_thresh = index_dis_optimize_thresh * adjust_param
         index_dis_side_thresh = index_dis_side_thresh * adjust_param
 
         # 对于端点距离 index_dis 小于阈值的缝边进行优化 ---------------------------------------------------------------------------------
         if index_dis < index_dis_optimize_thresh:
+            # === 检测两个缝边离端点的距离 ===
             # 同一 edge 上的所有点
             edge_points_pre_right = all_edge_info[pre_right_point["edge_id"]]["points_info"]
             edge_points_cur_left = all_edge_info[cur_left_point["edge_id"]]["points_info"]
             # 找到 edge 上最近的端点
             side_point_index_dis = [
                 [
-                    # 前一条边的右点 到其所在边的两个端点的距离
+                    # 前一条缝边的右点 到其所在边的两个端点的距离
                     min(cal_neigbor_points_index_dis(pre_right_point, edge_points_pre_right[0], all_panel_info)),
                     min(cal_neigbor_points_index_dis(pre_right_point, edge_points_pre_right[-1], all_panel_info))
                 ],
                 [
-                    # 当前边的左点 到其所在边的两个端点的距离
+                    # 当前缝边的左点 到其所在边的两个端点的距离
                     min(cal_neigbor_points_index_dis(cur_left_point, edge_points_cur_left[0], all_panel_info)),
                     min(cal_neigbor_points_index_dis(cur_left_point, edge_points_cur_left[-1], all_panel_info))
                 ]
             ]
-            # 获取离 前一条边的右点 和 当前边的左点 最近的两个端点
+            # 获取 前一条缝边的右点 和 当前缝边的左点 离各自边上两个端点的距离
             side_point_index_dis_index = [
                 0 if side_point_index_dis[0][0] < side_point_index_dis[0][1] else 1,
                 0 if side_point_index_dis[1][0] < side_point_index_dis[1][1] else 1,
             ]
+            # 获取离 前一条缝边的右点 和 当前缝边的左点 最近的两个端点
             side_point_closet =[
                 edge_points_pre_right[0] if side_point_index_dis_index[0]==0 else edge_points_pre_right[-1],
                 edge_points_cur_left[0]  if side_point_index_dis_index[1]==0 else edge_points_cur_left[-1],
@@ -205,13 +207,37 @@ def optimize_stitch_edge_list(stitch_edge_list_paramOrder, index_dis_optimize_th
             cur_left_dis2side = min(cal_neigbor_points_index_dis(cur_left_point, side_point_closet[1], all_panel_info))
 
             # === 计算两个点需要调整到的位置的 global_param ===
+            optimized = False  # 是否已经进行过优化了
             # 如果两个相邻缝边上的某个点离边的端点的距离小于阈值，则将这个边的端点设定为目标位置
             if pre_right_dis2side < index_dis_side_thresh or cur_left_dis2side < index_dis_side_thresh:
-                # 最近的那个端点，获取它的 global_param
-                target_side_point = side_point_closet[0] if pre_right_dis2side<cur_left_dis2side else side_point_closet[1]
-                target_global_param = target_side_point["global_param"]
-            # 其它情况：在这两个缝边的邻接处的两个点的中间作为目标位置
-            else:
+
+                order = ["pre", "cur"] if pre_right_dis2side < cur_left_dis2side else  ["cur", "pre"]
+                for o in order:
+                    if optimized: break
+                    if o=="pre" and pre_right_dis2side < index_dis_side_thresh:
+                        target_side_point, second_target = side_point_closet[0], side_point_closet[1]
+                        left_point, right_point = pre_left_point, pre_right_point
+                        left_point_dis_2side = cal_neigbor_points_index_dis(left_point, target_side_point, all_panel_info)    # 缝边左点 到 端点 的双向距离
+                        right_point_dis_2side = cal_neigbor_points_index_dis(right_point, target_side_point, all_panel_info)  # 缝边右点 到 端点 的双向距离
+                        if left_point_dis_2side[0]<left_point_dis_2side[1] and right_point_dis_2side[0]<right_point_dis_2side[1]:
+                            pass
+                        else:
+                            target_global_param = target_side_point["global_param"]
+                            optimized = True
+                    elif o=="cur" and cur_left_dis2side < index_dis_side_thresh:
+                        target_side_point, second_target = side_point_closet[1], side_point_closet[0]
+                        left_point, right_point = cur_left_point, cur_right_point
+                        left_point_dis_2side = cal_neigbor_points_index_dis(left_point, target_side_point, all_panel_info)  # 缝边左点 到 端点 的双向距离
+                        right_point_dis_2side = cal_neigbor_points_index_dis(right_point, target_side_point, all_panel_info)  # 缝边右点 到 端点 的双向距离
+                        if left_point_dis_2side[0] > left_point_dis_2side[1] and right_point_dis_2side[0] > right_point_dis_2side[1]:
+                            pass
+                        else:
+                            target_global_param = target_side_point["global_param"]
+                            optimized = True
+
+
+            # 其它情况（到目前为止还没进行任何优化）：在这两个缝边的邻接处的两个点的中间作为目标位置
+            if not optimized:
                 if min_dis_index == 1:  # 两个边中间有缝隙
                     target_global_param = pre_right_point["global_param"] + param_dis / 2
                 else:  # 两个边中间有重合
@@ -680,33 +706,20 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
             stitch_edge_list_paramOrder.append(stitch_edge)
 
 
-    # # 处理离端点较近的点 ---------------------------------------------------------------------------------------------------
-    # thresh = 0.2
-    # for stitch_edge in stitch_edge_list:
-    #     for pt in [stitch_edge["start_point"], stitch_edge["end_point"]]:
-    #         if pt["param"] < thresh:
-    #             pt["global_param"] -= pt["param"]
-    #             pt["param"] = 0
-    #         elif 1-pt["param"] < thresh:
-    #             pt["global_param"] += 1-pt["param"]
-    #             pt["param"] = 1
-    # pass
-
-
-    # # 将长度特别短的缝边删除 ------------------------------------------------------------------------------------------------
-    # thresh = 0.08
-    # filtered_stitch_edge_list = []
-    # for start_stitch_edge, end_stitch_edge in zip(stitch_edge_list[::2], stitch_edge_list[1::2]):
-    #     # [modified]
-    #     # param_dis_st = cal_stitch_edge_param_dis(end_stitch_edge, all_panel_info)
-    #     # param_dis_ed = cal_stitch_edge_param_dis(end_stitch_edge, all_panel_info)
-    #     param_dis_st = cal_stitch_edge_param_dis(start_stitch_edge, all_panel_info)
-    #     param_dis_ed = cal_stitch_edge_param_dis(end_stitch_edge, all_panel_info)
-    #     if param_dis_st<thresh or param_dis_ed<thresh:
-    #         continue
-    #     filtered_stitch_edge_list.append(start_stitch_edge)
-    #     filtered_stitch_edge_list.append(end_stitch_edge)
-    # stitch_edge_list = filtered_stitch_edge_list
+    # 将长度特别短的缝边删除 ------------------------------------------------------------------------------------------------
+    thresh = 0.08
+    filtered_stitch_edge_list = []
+    for start_stitch_edge, end_stitch_edge in zip(stitch_edge_list[::2], stitch_edge_list[1::2]):
+        # [modified]
+        # param_dis_st = cal_stitch_edge_param_dis(end_stitch_edge, all_panel_info)
+        # param_dis_ed = cal_stitch_edge_param_dis(end_stitch_edge, all_panel_info)
+        param_dis_st = cal_stitch_edge_param_dis(start_stitch_edge, all_panel_info)
+        param_dis_ed = cal_stitch_edge_param_dis(end_stitch_edge, all_panel_info)
+        if param_dis_st<thresh or param_dis_ed<thresh:
+            continue
+        filtered_stitch_edge_list.append(start_stitch_edge)
+        filtered_stitch_edge_list.append(end_stitch_edge)
+    stitch_edge_list = filtered_stitch_edge_list
 
 
     # 将缝合数据转换为 AIGP 文件中 "stitches" 的格式 -------------------------------------------------------------------------
