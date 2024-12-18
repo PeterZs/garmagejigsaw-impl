@@ -326,115 +326,111 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         ds_mat = out_dict["ds_mat"]  # 预测的点点匹配概率
         # 【下三角为0】所有采样点的gt缝合关系
         gt_mat = data_dict.get("mat_gt", None)
-        if self.training:
-            # calculate cls loss ---------------------------------------------------------------------------------------
-            # 【概率】预测的点的二分类概率
-            pc_cls = (out_dict.get("pc_cls", None)).squeeze(-1)
-            # 【1为是缝合点】pc_cls>pc_cls_threshold得到的分类结果
-            pc_cls_mask = (out_dict.get("pc_cls_mask", None)).squeeze(-1)
-            pc_cls_gt = (torch.sum(gt_mat + gt_mat.transpose(-1, -2),
-                                   dim=-1) == 1) * 1.0
-            cls_loss = BCELoss()(pc_cls, pc_cls_gt)
-            loss_dict.update({"cls_loss": cls_loss,})
+        # calculate cls loss ---------------------------------------------------------------------------------------
+        # 【概率】预测的点的二分类概率
+        pc_cls = (out_dict.get("pc_cls", None)).squeeze(-1)
+        # 【1为是缝合点】pc_cls>pc_cls_threshold得到的分类结果
+        pc_cls_mask = (out_dict.get("pc_cls_mask", None)).squeeze(-1)
+        pc_cls_gt = (torch.sum(gt_mat + gt_mat.transpose(-1, -2),
+                               dim=-1) == 1) * 1.0
+        cls_loss = BCELoss()(pc_cls, pc_cls_gt)
+        loss_dict.update({"cls_loss": cls_loss,})
 
-            # calculate matching loss ----------------------------------------------------------------------------------
-            """
-               之所以让模型与预测一个尽量对称的ds_mat，而不是仅取ds_mat的上半部分与gt_mat计算损失，是因为我希望模型能真正学到通过几何关系来计算
-            缝合关系，即：如果点A被预测和点B缝合，那么对B进行预测的结果也应当是A
-                因此，我选择让模型去和双向的gt_mat（上三角被复制到下三角）来计算损失，从而让affinity layer学到从几何角度推出缝合关系，从而
-            解决那些错误缝合。在使用模型的inference结果时，可以先将行中最大值小于阈值的行（以及对应的列）全部剔除，然后进行匈牙利算法
-            """
-            n_stitch_pcs_sum = n_stitch_pcs_sum.reshape(-1)
-            # 【下三角为0】具有缝合关系的点，它们之间的gt缝合关系（单向缝合）
-            stitch_pcs_gt_mat_half = self._get_stitch_pcs_gt_mat(gt_mat,pc_cls_mask,B_size,N_point,n_stitch_pcs_sum)
-            # stitch_pcs=pcs[0][pc_cls_mask[0] == 1]
-            # pointcloud_visualize(stitch_pcs)
-            # pointcloud_and_stitch_visualize(stitch_pcs, stitch_mat2indices(stitch_pcs_gt_mat[0].cpu().detach().numpy()))
-            # 【上下三角sum相等】双向的的缝合关系
-            stitch_pcs_gt_mat = stitch_pcs_gt_mat_half + stitch_pcs_gt_mat_half.transpose(-1, -2)
-            mat_loss = permutation_loss(
-                ds_mat, stitch_pcs_gt_mat.float(), n_stitch_pcs_sum, n_stitch_pcs_sum
-            )
+        # calculate matching loss ----------------------------------------------------------------------------------
+        """
+           之所以让模型与预测一个尽量对称的ds_mat，而不是仅取ds_mat的上半部分与gt_mat计算损失，是因为我希望模型能真正学到通过几何关系来计算
+        缝合关系，即：如果点A被预测和点B缝合，那么对B进行预测的结果也应当是A
+            因此，我选择让模型去和双向的gt_mat（上三角被复制到下三角）来计算损失，从而让affinity layer学到从几何角度推出缝合关系，从而
+        解决那些错误缝合。在使用模型的inference结果时，可以先将行中最大值小于阈值的行（以及对应的列）全部剔除，然后进行匈牙利算法
+        """
+        n_stitch_pcs_sum = n_stitch_pcs_sum.reshape(-1)
+        # 【下三角为0】具有缝合关系的点，它们之间的gt缝合关系（单向缝合）
+        stitch_pcs_gt_mat_half = self._get_stitch_pcs_gt_mat(gt_mat,pc_cls_mask,B_size,N_point,n_stitch_pcs_sum)
+        # stitch_pcs=pcs[0][pc_cls_mask[0] == 1]
+        # pointcloud_visualize(stitch_pcs)
+        # pointcloud_and_stitch_visualize(stitch_pcs, stitch_mat2indices(stitch_pcs_gt_mat[0].cpu().detach().numpy()))
+        # 【上下三角sum相等】双向的的缝合关系
+        stitch_pcs_gt_mat = stitch_pcs_gt_mat_half + stitch_pcs_gt_mat_half.transpose(-1, -2)
+        mat_loss = permutation_loss(
+            ds_mat, stitch_pcs_gt_mat.float(), n_stitch_pcs_sum, n_stitch_pcs_sum
+        )
+        loss_dict.update(
+            {
+                "mat_loss": mat_loss,
+            }
+        )
+
+        # ------------------------- Following Only For Evaluation --------------------------------------------------
+
+        # calculate stitch_dis_loss --------------------------------------------------------------------------------
+        # mean distance between stitched points
+        with torch.no_grad():
+            # calculate mean dist between stitched points
+            Dis = torch.sqrt(((pcs[:, :, None, :] - pcs[:, None, :, :]) ** 2).sum(dim=-1)) + (
+                        torch.eye(pcs.shape[1])).to(pcs.device)
+
+            for B in range(B_size):
+                Dis[B][:n_stitch_pcs_sum[B], :n_stitch_pcs_sum[B]] = Dis[B][pc_cls_mask[B] == 1][:,pc_cls_mask[B] == 1]
+
+            stitch_dis_loss = torch.sum(torch.mul(Dis, ds_mat)) / torch.sum(n_stitch_pcs_sum)
             loss_dict.update(
                 {
-                    "mat_loss": mat_loss,
+                    "stitch_dis_loss": stitch_dis_loss,
+                }
+            )
+            # [todo] stitch_dis_loss目前只能作为一种评估的方法，不能直接放入loss
+            # loss += stitch_dis_loss
+
+        # calculate TP FP TN FN ACC TPR TNR ------------------------------------------------------------------------
+        with torch.no_grad():
+            B_size, N_point, _ = data_dict["pcs"].shape
+
+            stitch_mat_ = out_dict["ds_mat"]
+            mat_gt = data_dict["mat_gt"]
+            pc_cls = out_dict["pc_cls"]
+            threshold = self.pc_cls_threshold
+
+            pc_cls_ = pc_cls.squeeze(-1)
+            pc_cls_gt = (torch.sum(mat_gt[:, :N_point] + mat_gt[:, :N_point].transpose(-1, -2),
+                                   dim=-1) == 1) * 1.0
+            indices = pc_cls_ > threshold
+            TP = torch.sum(torch.sum(indices[pc_cls_gt == 1] * 1))
+            # print(f"TP={TP}")
+            indices = pc_cls_ > threshold
+            FP = torch.sum(torch.sum((indices[pc_cls_gt == 1] == False) * 1))
+            # print(f"TN={FP}")
+            indices = pc_cls_ < threshold
+            TN = torch.sum(torch.sum(indices[pc_cls_gt == 0] * 1))
+            # print(f"FP={TN}")
+            indices = pc_cls_ < threshold
+            FN = torch.sum(torch.sum((indices[pc_cls_gt == 0] == False) * 1))
+            # print(f"FN={FN}")
+
+            ACC = (TP + TN) / (TP + FP + TN + FN)
+            # print(f"ACC={ACC:.4f}")
+            TPR = TP / (TP + FN)
+            # print(f"TPR={TPR:.4f}")
+            TNR = TN / (FP + TN)
+            # print(f"FPR={TNR:.4f}")
+            PRECISION = TP / (TP + FP + 1e-5)
+            loss_dict.update(
+                {
+                    "pcs_1_ACC": ACC,
+                    "pcs_2_TPR": TPR,
+                    "pcs_3_TNR": TNR,
+                    "pcs_4_PRECISION": PRECISION,
                 }
             )
 
-            # ------------------------- Following Only For Evaluation --------------------------------------------------
-
-            # calculate stitch_dis_loss --------------------------------------------------------------------------------
-            # mean distance between stitched points
+        if self.is_train_in_stages:
             with torch.no_grad():
-                # calculate mean dist between stitched points
-                Dis = torch.sqrt(((pcs[:, :, None, :] - pcs[:, None, :, :]) ** 2).sum(dim=-1)) + (
-                            torch.eye(pcs.shape[1])).to(pcs.device)
+                self.cls_loss_list.append(float(cls_loss))
+                self.mat_loss_list.append(float(mat_loss))
 
-                for B in range(B_size):
-                    Dis[B][:n_stitch_pcs_sum[B], :n_stitch_pcs_sum[B]] = Dis[B][pc_cls_mask[B] == 1][:,pc_cls_mask[B] == 1]
-
-                stitch_dis_loss = torch.sum(torch.mul(Dis, ds_mat)) / torch.sum(n_stitch_pcs_sum)
-                loss_dict.update(
-                    {
-                        "stitch_dis_loss": stitch_dis_loss,
-                    }
-                )
-                # [todo] stitch_dis_loss目前只能作为一种评估的方法，不能直接放入loss
-                # loss += stitch_dis_loss
-
-            # calculate TP FP TN FN ACC TPR TNR ------------------------------------------------------------------------
-            with torch.no_grad():
-                B_size, N_point, _ = data_dict["pcs"].shape
-
-                stitch_mat_ = out_dict["ds_mat"]
-                mat_gt = data_dict["mat_gt"]
-                pc_cls = out_dict["pc_cls"]
-                threshold = self.pc_cls_threshold
-
-                pc_cls_ = pc_cls.squeeze(-1)
-                pc_cls_gt = (torch.sum(mat_gt[:, :N_point] + mat_gt[:, :N_point].transpose(-1, -2),
-                                       dim=-1) == 1) * 1.0
-                indices = pc_cls_ > threshold
-                TP = torch.sum(torch.sum(indices[pc_cls_gt == 1] * 1))
-                # print(f"TP={TP}")
-                indices = pc_cls_ > threshold
-                FP = torch.sum(torch.sum((indices[pc_cls_gt == 1] == False) * 1))
-                # print(f"TN={FP}")
-                indices = pc_cls_ < threshold
-                TN = torch.sum(torch.sum(indices[pc_cls_gt == 0] * 1))
-                # print(f"FP={TN}")
-                indices = pc_cls_ < threshold
-                FN = torch.sum(torch.sum((indices[pc_cls_gt == 0] == False) * 1))
-                # print(f"FN={FN}")
-
-                ACC = (TP + TN) / (TP + FP + TN + FN)
-                # print(f"ACC={ACC:.4f}")
-                TPR = TP / (TP + FN)
-                # print(f"TPR={TPR:.4f}")
-                TNR = TN / (FP + TN)
-                # print(f"FPR={TNR:.4f}")
-                PRECISION = TP / (TP + FP + 1e-5)
-                loss_dict.update(
-                    {
-                        "pcs_1_ACC": ACC,
-                        "pcs_2_TPR": TPR,
-                        "pcs_3_TNR": TNR,
-                        "pcs_4_PRECISION": PRECISION,
-                    }
-                )
-
-            if self.is_train_in_stages:
-                with torch.no_grad():
-                    self.cls_loss_list.append(float(cls_loss))
-                    self.mat_loss_list.append(float(mat_loss))
-
-            loss = (cls_loss * self.w_cls_loss+
-                    mat_loss * self.w_mat_loss)
-            loss_dict.update({"loss": loss,})
-            return loss_dict
-        else:
-            raise NotImplementedError
-            return loss_dict
+        loss = (cls_loss * self.w_cls_loss+
+                mat_loss * self.w_mat_loss)
+        loss_dict.update({"loss": loss,})
+        return loss_dict
 
     # 在训练开始时执行的
     def init_dynamic_adjustment(self):

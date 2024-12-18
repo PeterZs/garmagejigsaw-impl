@@ -75,6 +75,8 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         elif self.mode=="test":
             self.data_list = self.data_list
 
+        self.data_list = self.data_list[::300]
+
         try:
             with open(os.path.join(data_dir,self.mode,"data_info.json"), "r", encoding="utf-8") as f:
                 self.data_info = json.load(f)
@@ -837,7 +839,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             uv = np.hstack((uv, np.zeros((uv.shape[0], 1))))
             data_dict["uv"] = uv
 
-        if self.mode == "train":
+        if self.mode == "train" or self.mode == "val":
             # pointcloud_visualize(cur_pcs)
             # pointcloud_visualize([cur_pcs[piece_id==i] for i in range(len(pcs))])
             # pointcloud_and_stitch_visualize(cur_pcs, mat_gt)

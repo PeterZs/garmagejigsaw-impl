@@ -65,7 +65,7 @@ __C.TRAIN.WEIGHT_DECAY = 0.0
 __C.TRAIN.MOMENTUM = 0.9
 
 # Check val every n epoch
-__C.TRAIN.VAL_EVERY = 5
+__C.TRAIN.VAL_EVERY = 1
 
 # Visualization during training
 __C.TRAIN.VIS = True

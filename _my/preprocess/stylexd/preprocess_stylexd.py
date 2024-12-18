@@ -33,5 +33,4 @@ if __name__ == "__main__":
 
         meshes = split_mesh_into_parts(obj_dict)
 
-
         save_results(obj_dict, meshes, garment_save_dir, file_path)

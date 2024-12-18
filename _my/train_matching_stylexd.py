@@ -69,7 +69,7 @@ def train_model(cfg):
     train_loader, val_loader = build_stylexd_dataloader_train_val(cfg)
 
     print("Start training")
-    trainer.fit(model, train_loader, ckpt_path=ckp_path)
+    trainer.fit(model, train_loader, val_loader, ckpt_path=ckp_path)
     print("Done training")
 
 
