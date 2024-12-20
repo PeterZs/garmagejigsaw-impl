@@ -12,7 +12,7 @@ from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcl
 from utils.inference.save_result import save_result
 
 if __name__ == "__main__":
-    data_type = "StyleGen"
+    data_type = "brep_reso_128"
     if not data_type in [
         "StyleGen",
         "StyleGen_multilayer",   # multi-layer of StyleGen data
@@ -45,7 +45,7 @@ if __name__ == "__main__":
                                 filter_too_long=True, filter_length=0.2,
                                 filter_too_small=True, filter_logits=0.18,
                                 only_triu=True, filter_uncontinue=False,
-                                show_pc_cls=False, show_stitch=False))
+                                show_pc_cls=False, show_stitch=True))
         elif data_type == "StyleGen_multilayer":
             stitch_mat_full, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
