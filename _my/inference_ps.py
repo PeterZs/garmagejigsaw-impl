@@ -24,7 +24,7 @@ if __name__ == "__main__":
         batch = to_device(batch, model.device)
         inf_rst = model(batch)
 
-        stitch_mat_full, stitch_indices_full = get_pointstitch(batch, inf_rst,
+        stitch_mat_full, stitch_indices_full, logits = get_pointstitch(batch, inf_rst,
                          sym_choice = "sym_max", mat_choice = "hun",
                          filter_too_long = True, filter_length = 0.2,
                          filter_too_small = True, filter_logits = 0.15,
