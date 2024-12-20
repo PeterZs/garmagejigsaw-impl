@@ -163,8 +163,6 @@ def get_pointstitch(batch, inf_rst,
         stitch_mat_full = stitch_indices2mat(pcs.shape[0], stitch_indices_full)
         # pointcloud_and_stitch_visualize(pcs, stitch_indices_full.detach().cpu().numpy(),
         #           title=f"predict stitch(threshold={pc_stitch_threshold}) in all points")
-        a=1
-    a=1
 
     # 如果缝合关系可传递，则
 
@@ -193,4 +191,4 @@ def get_pointstitch(batch, inf_rst,
         a=1
 
     """
-    return stitch_mat_full, stitch_indices_full
+    return stitch_mat_full, stitch_indices_full, logits

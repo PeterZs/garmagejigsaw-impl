@@ -8,20 +8,19 @@ from model import build_model
 from dataset import build_stylexd_dataloader_test
 
 from utils import  to_device, get_pointstitch, pointstitch_2_edgestitch
-from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcloud_and_stitch_logits_visualize
+from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcloud_and_stitch_logits_visualize, composite_visualize
 from utils.inference.save_result import save_result
 
 if __name__ == "__main__":
-    data_type = "brep_reso_128"
-    if not data_type in ["DY_0.023",    # [todo] 后面记得删
-                         "DY_ML",       # [todo] 后面记得删
-                         "StyleGen",
-                         "StyleGen_multilayer",   # multi-layer of StyleGen data
-                         "brep_reso_128",
-                         "brep_reso_256",
-                         "brep_reso_512",
-                         "brep_reso_1024"]:
-        raise ValueError(f"data_type{data_type} is not valid")
+    data_type = "StyleGen"
+    if not data_type in [
+        "StyleGen",
+        "StyleGen_multilayer",   # multi-layer of StyleGen data
+        "brep_reso_128",
+        "brep_reso_256",
+        "brep_reso_512",
+        "brep_reso_1024"
+        ]: raise ValueError(f"data_type{data_type} is not valid")
 
     from utils.config import cfg
     from utils.parse_args import parse_args
@@ -38,17 +37,17 @@ if __name__ == "__main__":
         inf_rst = model(batch)
 
         # 获取点点缝合关系 -------------------------------------------------------------------------------------------------
-        if data_type == "DY_0.023":
-            stitch_mat_full, stitch_indices_full = (
+        if data_type == "StyleGen":
+            stitch_mat_full, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
                                 sym_choice="sym_max", mat_choice="col_max",
                                 filter_neighbor_stitch=True, filter_neighbor = 7,
                                 filter_too_long=True, filter_length=0.2,
                                 filter_too_small=True, filter_logits=0.18,
                                 only_triu=True, filter_uncontinue=False,
-                                show_pc_cls=False, show_stitch=True))
-        elif data_type == "DY_ML":
-            stitch_mat_full, stitch_indices_full = (
+                                show_pc_cls=False, show_stitch=False))
+        elif data_type == "StyleGen_multilayer":
+            stitch_mat_full, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
                                 sym_choice="sym_max", mat_choice="col_max",
                                 filter_neighbor_stitch=True, filter_neighbor = 5,
@@ -57,7 +56,7 @@ if __name__ == "__main__":
                                 only_triu=True, filter_uncontinue=False,
                                 show_pc_cls=False, show_stitch=False))
         elif data_type == "brep_reso_128":
-            stitch_mat_full, stitch_indices_full = (
+            stitch_mat_full, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
                                 sym_choice="sym_max", mat_choice="col_max",
                                 filter_neighbor_stitch=True, filter_neighbor = 3,
@@ -75,10 +74,11 @@ if __name__ == "__main__":
                                                 unstitch_thresh=15, fliter_len=3,
                                                 param_dis_optimize_thresh=0.9)
 
+        # 保存可视化结果 ---------------------------------------------------------------------------------------------------
+        fig_comp = composite_visualize(batch, inf_rst, stitch_indices_full, logits)
+
+
         # 保存结果 -------------------------------------------------------------------------------------------------------
         save_dir = "_tmp/garment_json_output"
-        os.makedirs(save_dir, exist_ok=True)
-        save_path = os.path.join(save_dir, f"garment_"+f"{int(batch['data_id'])}".zfill(5)+".json")
-        save_result(garment_json, save_path)
-        a=1
+        save_result(save_dir, data_id=int(batch['data_id']), garment_json=garment_json, fig=fig_comp)
         # input("Press ENTER to continue")
