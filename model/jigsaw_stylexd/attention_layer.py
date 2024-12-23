@@ -225,38 +225,45 @@ class PointTransformerLayer(nn.Module):
 
 
 class PointTransformerBlock(nn.Module):
-    def __init__(self, backbone_feat_dim, num_points, n_heads=8, nsampmle=16):
+    def __init__(self, name ,backbone_feat_dim, num_points, n_heads=8, nsampmle=16):
         super(PointTransformerBlock, self).__init__()
         self.feat_dim = backbone_feat_dim
         self.num_points = num_points
+        self.name = name
 
         self.linear1 = nn.Linear(self.feat_dim , self.feat_dim , bias=False)
-        self.bn1 = nn.BatchNorm1d(self.num_points)
-        self.self_tf_layer = PointTransformerLayer(
-            in_feat=self.feat_dim ,
-            out_feat=self.feat_dim ,
-            n_heads=n_heads,
-            nsampmle=nsampmle,
-        )
-        self.cross_tf_layer = CrossAttentionLayer(
-            d_in=self.feat_dim ,
-            n_head=n_heads
-        )
+        self.bn1 = nn.BatchNorm1d(self.feat_dim)
+        if self.name=="self":
+            self.tf_layer = PointTransformerLayer(
+                in_feat=self.feat_dim ,
+                out_feat=self.feat_dim ,
+                n_heads=n_heads,
+                nsampmle=nsampmle,
+            )
+        elif self.name=="cross":
+            self.tf_layer = CrossAttentionLayer(
+                d_in=self.feat_dim ,
+                n_head=n_heads
+            )
+        else:
+            raise NotImplementedError
 
-        self.bn2 = nn.BatchNorm1d(self.num_points)
+        self.bn2 = nn.BatchNorm1d(self.feat_dim)
         self.linear3 = nn.Linear(self.feat_dim , self.feat_dim , bias=False)
-        self.bn3 = nn.BatchNorm1d(self.num_points)
+        self.bn3 = nn.BatchNorm1d(self.feat_dim)
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, pcs_flatten, features, batch_length, B_size, N_point):
         identity_1 = features
-        features = self.relu(self.bn1(self.linear1(features)))
+        features = self.relu(self.bn1(self.linear1(features).transpose(1, 2)).transpose(1, 2))
 
-        features = self.self_tf_layer( pcs_flatten, features.view(-1, self.feat_dim ),  batch_length,).view(B_size, N_point, -1).contiguous()
-        features = self.relu(self.bn2(features))
+        if self.name=="self":
+            features = self.tf_layer( pcs_flatten, features.reshape(-1, self.feat_dim ),  batch_length,).view(B_size, N_point, -1).contiguous()
+        elif self.name=="cross":
+            features = self.tf_layer(features)
 
-        features = self.cross_tf_layer(features)
-        features = self.bn3(self.linear3(features))
+        features = self.relu(self.bn2(features.transpose(1, 2)).transpose(1, 2))
+        features = self.bn3(self.linear3(features).transpose(1, 2)).transpose(1, 2)
 
         features += identity_1
         features = self.relu(features)
