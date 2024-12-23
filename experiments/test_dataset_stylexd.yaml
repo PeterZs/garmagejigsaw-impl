@@ -31,6 +31,7 @@ MODEL:
   USE_GLOBAL_POINT_FEATURE: False  # 是否提取点的全局特征
   USE_UV_FEATURE: False     # 是否提取UV特征
   TF_LAYER_NUM: 1
+  USE_TF_BLOCK: False  # 是否将每一层 PointTransformer Layer 分别封装成一个包含残差效果的 Block
   IS_TRAIN_IN_STAGE: False  # 是否分阶段训练
   PC_CLS_THRESHOLD: 0.5
   LOSS:

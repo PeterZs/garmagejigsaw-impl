@@ -75,6 +75,8 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         elif self.mode=="test":
             self.data_list = self.data_list
 
+        self.data_list = self.data_list[::100]
+
         try:
             with open(os.path.join(data_dir,self.mode,"data_info.json"), "r", encoding="utf-8") as f:
                 self.data_info = json.load(f)
@@ -960,9 +962,9 @@ def build_stylexd_dataloader_train_val(cfg):
     val_set = AllPieceMatchingDataset_stylexd(**data_dict)
     val_loader = DataLoader(
         dataset=val_set,
-        batch_size=1,  # [modified]
+        batch_size=cfg.BATCH_SIZE,
         shuffle=False,
-        num_workers=1,  # [modified]
+        num_workers=cfg.NUM_WORKERS,
         pin_memory=True,
         drop_last=False,
         persistent_workers=(cfg.NUM_WORKERS > 0),

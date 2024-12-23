@@ -1,8 +1,8 @@
 from easydict import EasyDict as edict
 
 __C = edict()
-
 model_cfg = __C
+
 __C.STYLEXD = edict()
 
 __C.STYLEXD.ROT_TYPE = 'rmat'
@@ -31,6 +31,7 @@ __C.STYLEXD.SINKHORN_TAU = 0.05
 __C.STYLEXD.TF_LAYER_NUM = 1
 __C.STYLEXD.TF_NUM_HEADS = 8
 __C.STYLEXD.TF_NUM_SAMPLE = 16
+__C.STYLEXD.USE_TF_BLOCK = False  # 是否使用 PointTransformer Block 来将每个 PointTransformer 进行分别封装
 
 __C.STYLEXD.LOSS = edict()
 __C.STYLEXD.LOSS.w_cls_loss = 0.5

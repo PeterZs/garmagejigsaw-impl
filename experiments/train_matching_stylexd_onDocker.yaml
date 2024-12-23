@@ -17,7 +17,7 @@ BATCH_SIZE: 15
 NUM_WORKERS: 10
 
 TRAIN:
-  NUM_EPOCHS: 100
+  NUM_EPOCHS: 120
   LR: 0.001
   WEIGHT_DECAY: 0.
   WARMUP_RATIO: 0.
@@ -31,6 +31,7 @@ MODEL:
   USE_GLOBAL_POINT_FEATURE: True  # 是否提取点的全局特征
   USE_UV_FEATURE: True      # 是否提取UV特征
   TF_LAYER_NUM: 5  # PT层的数量
+  USE_TF_BLOCK: False  # 是否将每一层 PointTransformer Layer 分别封装成一个包含残差效果的 Block
   IS_TRAIN_IN_STAGE: False  # 是否分阶段训练
   PC_CLS_THRESHOLD: 0.5
   LOSS:

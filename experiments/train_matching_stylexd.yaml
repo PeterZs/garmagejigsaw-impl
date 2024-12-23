@@ -13,8 +13,8 @@ WANDB:
   ID: ivjf8z54
 
 GPUS: [0]
-BATCH_SIZE: 1
-NUM_WORKERS: 1
+BATCH_SIZE: 5
+NUM_WORKERS: 5
 
 TRAIN:
   NUM_EPOCHS: 100
@@ -30,7 +30,8 @@ MODEL:
   USE_LOCAL_POINT_FEATURE: True    # 是否提取点的局部特征
   USE_GLOBAL_POINT_FEATURE: False  # 是否提取点的全局特征
   USE_UV_FEATURE: True     # 是否提取UV特征
-  TF_LAYER_NUM: 0
+  TF_LAYER_NUM: 3
+  USE_TF_BLOCK: True  # 是否将每一层 PointTransformer Layer 分别封装成一个包含残差效果的 Block
   IS_TRAIN_IN_STAGE: False  # 是否分阶段训练
   PC_CLS_THRESHOLD: 0.5
   LOSS:

@@ -1,7 +1,3 @@
-"""
-V9，加UV特征
-"""
-
 
 import torch
 from torch import nn
@@ -11,29 +7,25 @@ from torch.nn import BCELoss
 from model import MatchingBaseModel, build_encoder
 from .affinity_layer import build_affinity
 from .pc_classifier_layer import build_pc_classifier
-from .attention_layer import PointTransformerLayer, CrossAttentionLayer
+from .attention_layer import PointTransformerLayer, CrossAttentionLayer, PointTransformerBlock
 from utils import permutation_loss
 from utils import get_batch_length_from_part_points, square_distance
 from utils import pointcloud_visualize, pointcloud_and_stitch_visualize
 from utils import Sinkhorn, hungarian, stitch_indices2mat, stitch_mat2indices
 
-import os
-import shutil
-import numpy as np
 
 
 class JointSegmentationAlignmentModel(MatchingBaseModel):
     def __init__(self, cfg):
         super().__init__(cfg)
-        self.N_point = cfg.DATA.NUM_PC_POINTS
-        self.w_cls_loss = self.cfg.MODEL.LOSS.w_cls_loss
-        self.w_mat_loss = self.cfg.MODEL.LOSS.w_mat_loss
+        self.N_point = cfg.DATA.NUM_PC_POINTS               # 点数量
+        self.w_cls_loss = self.cfg.MODEL.LOSS.w_cls_loss    # 点分类损失
+        self.w_mat_loss = self.cfg.MODEL.LOSS.w_mat_loss    # 缝合损失
         self.pc_cls_threshold = self.cfg.MODEL.PC_CLS_THRESHOLD  # 二分类结果的阈值
-        self.num_classes = self.cfg.MODEL.PC_NUM_CLS
 
-        self.use_point_feature = cfg.MODEL.get("USE_POINT_FEATURE", True)
-        self.use_local_point_feature = cfg.MODEL.get("USE_LOCAL_POINT_FEATURE", True)  # 是否提取点的局部特征
-        self.use_global_point_feature = cfg.MODEL.get("USE_GLOBAL_POINT_FEATURE", True)  # 是否提取点的局部特征
+        self.use_point_feature = cfg.MODEL.get("USE_POINT_FEATURE", True)                   # 是否提取UV的全局特征
+        self.use_local_point_feature = cfg.MODEL.get("USE_LOCAL_POINT_FEATURE", True)       # 是否提取点的局部特征
+        self.use_global_point_feature = cfg.MODEL.get("USE_GLOBAL_POINT_FEATURE", True)     # 是否提取点的局部特征
 
         self.use_uv_feature = cfg.MODEL.get("USE_UV_FEATURE", False)
 
@@ -69,41 +61,51 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
         self.tf_layer_num = cfg.MODEL.get("TF_LAYER_NUM", 1)
         assert self.tf_layer_num >= 0, "tf_layer_num too small"
-        # [全局+局部特征]
-        # self.tf_self1 = PointTransformerLayer(
-        #     in_feat=self.pc_feat_dim*2, out_feat=self.pc_feat_dim*2,
-        #     n_heads=self.cfg.MODEL.TF_NUM_HEADS, nsampmle=self.cfg.MODEL.TF_NUM_SAMPLE,
-        # )
-        # self.tf_cross1 = CrossAttentionLayer(d_in=self.pc_feat_dim*2,
-        #                                      n_head=self.cfg.MODEL.TF_NUM_HEADS,)
-        # [仅局部特征]
-        if self.tf_layer_num == 1:
-            self.tf_self1 = PointTransformerLayer(
-                in_feat=self.backbone_feat_dim, out_feat=self.backbone_feat_dim,
-                n_heads=self.cfg.MODEL.TF_NUM_HEADS, nsampmle=self.cfg.MODEL.TF_NUM_SAMPLE,
-            )
-            self.tf_cross1 = CrossAttentionLayer(d_in=self.backbone_feat_dim,
-                                                 n_head=self.cfg.MODEL.TF_NUM_HEADS,)
-            self.tf_layers = [("self", self.tf_self1), ("cross", self.tf_cross1)]
-        elif self.tf_layer_num > 1:
-            # 加入ModuleList是为了让这些模型在训练开始时自动装入GPU
+        self.use_tf_block = cfg.MODEL.get("USE_TF_BLOCK", False)
+        # 如果不使用 PointTransformer Block (这种方法仅能够支持 self.tf_layer_num <= 2)
+        if not self.use_tf_block:
+            # [todo] 分成以下三种情况是为了兼容过去的checkpoints，将来可以考虑将这三个if整合到一起，重新训练一遍
+            if self.tf_layer_num == 1:
+                self.tf_self1 = PointTransformerLayer(
+                    in_feat=self.backbone_feat_dim, out_feat=self.backbone_feat_dim,
+                    n_heads=self.cfg.MODEL.TF_NUM_HEADS, nsampmle=self.cfg.MODEL.TF_NUM_SAMPLE,
+                )
+                self.tf_cross1 = CrossAttentionLayer(d_in=self.backbone_feat_dim,
+                                                     n_head=self.cfg.MODEL.TF_NUM_HEADS, )
+                self.tf_layers = [("self", self.tf_self1), ("cross", self.tf_cross1)]
+            elif self.tf_layer_num > 1:
+                # 加入ModuleList是为了让这些模型在训练开始时自动装入GPU
+                self.tf_layers_ml = nn.ModuleList()
+                self.tf_layers = []
+                for i in range(self.tf_layer_num):
+                    self_tf_layer = PointTransformerLayer(
+                        in_feat=self.backbone_feat_dim,
+                        out_feat=self.backbone_feat_dim,
+                        n_heads=self.cfg.MODEL.TF_NUM_HEADS,
+                        nsampmle=self.cfg.MODEL.TF_NUM_SAMPLE, )
+                    cross_tf_layer = CrossAttentionLayer(
+                        d_in=self.backbone_feat_dim,
+                        n_head=self.cfg.MODEL.TF_NUM_HEADS, )
+                    self.tf_layers_ml.append(self_tf_layer)
+                    self.tf_layers_ml.append(cross_tf_layer)
+                    self.tf_layers.append(("self", self_tf_layer))
+                    self.tf_layers.append(("cross", cross_tf_layer))
+            elif self.tf_layer_num == 0:
+                self.tf_layers = []
+        # 如果使用 PointTransformer Block
+        else:
             self.tf_layers_ml = nn.ModuleList()
             self.tf_layers = []
             for i in range(self.tf_layer_num):
-                self_tf_layer = PointTransformerLayer(
-                    in_feat=self.backbone_feat_dim,
-                    out_feat=self.backbone_feat_dim,
+                tf_block = PointTransformerBlock(
+                    backbone_feat_dim=self.backbone_feat_dim,
+                    num_points=self.N_point,
                     n_heads=self.cfg.MODEL.TF_NUM_HEADS,
-                    nsampmle=self.cfg.MODEL.TF_NUM_SAMPLE,)
-                cross_tf_layer = CrossAttentionLayer(
-                    d_in=self.backbone_feat_dim,
-                    n_head=self.cfg.MODEL.TF_NUM_HEADS,)
-                self.tf_layers_ml.append(self_tf_layer)
-                self.tf_layers_ml.append(cross_tf_layer)
-                self.tf_layers.append(("self", self_tf_layer))
-                self.tf_layers.append(("cross", cross_tf_layer))
-        elif self.tf_layer_num == 0:
-            self.tf_layers = []
+                    nsampmle=self.cfg.MODEL.TF_NUM_SAMPLE,
+                )
+                self.tf_layers_ml.append(tf_block)
+                self.tf_layers.append(("block", tf_block))
+
 
         # 分阶段学习 -----------------------------------------------------------------------------------------------------
         self.is_train_in_stages = self.cfg.MODEL.get("IS_TRAIN_IN_STAGE", False)  # 是否分阶段学习
@@ -163,13 +165,6 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         )
         return affinity_layer
 
-    # [全局+局部特征]
-    # def _init_pc_classifier_layer(self):
-    #     pc_classifier_layer = build_pc_classifier(
-    #         self.pc_feat_dim*2
-    #     )
-    #     return pc_classifier_layer
-    # [仅局部特征]
     def _init_pc_classifier_layer(self):
         pc_classifier_layer = build_pc_classifier(
             self.pccls_feat_dim
@@ -194,7 +189,6 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         valid_feats = self.uv_encoder(valid_uv, batch_length)  # [B * N_sum, F]
         uv_feats = valid_feats.reshape(B, N_sum, -1)  # [B, N_sum, F]
         return uv_feats
-
 
     def _get_stitch_pcs_feats(self, feat, n_stitch_pcs_sum, pc_cls_mask, B_size, N_point, F_dim):
         critical_feats = torch.zeros(B_size, N_point, F_dim, device=self.device, dtype=feat.dtype)
@@ -222,13 +216,6 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
         batch_length = get_batch_length_from_part_points(n_pcs, n_valids=n_valid).to(self.device)
 
-        # PART1:front-end Feature Extractor
-        # PointNet++提取出每个顶点的特征
-        # [全局+局部特征]
-        # pcs_feats_local = self._extract_part_feats(pcs, batch_length)
-        # pcs_feats_global = self._extract_part_feats(pcs, torch.tensor([N_point]*B_size))
-        # pcs_feats = torch.concat([pcs_feats_local,pcs_feats_global],dim=-1)
-        # [仅局部特征]
         features = []
         if self.use_point_feature:
             if self.use_local_point_feature:
@@ -247,30 +234,21 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
         # 顶点特征输入到PointTransformer层中，获取点与点之间的关系
         for name, layer in self.tf_layers:
+            # 如果是自注意力层
             if name == "self":
-                # [全局+局部特征]
-                # pcs_feats = (
-                #     layer(
-                #         pcs_flatten,
-                #         pcs_feats.view(-1, self.pc_feat_dim*2),
-                #         batch_length,
-                #     )
-                #     .view(B_size, N_point, -1)
-                #     .contiguous()
-                # )
-                # [仅局部特征]
                 features = (
                     layer(
                         pcs_flatten,
                         features.view(-1, self.backbone_feat_dim),
                         batch_length,
-                    )
-                    .view(B_size, N_point, -1)
-                    .contiguous()
+                    ).view(B_size, N_point, -1).contiguous()
                 )
-            else:
+            # 如果是交叉注意力层
+            elif name == "cross":
                 features = layer(features)
-        # data_dict.update({"part_feats": pcs_feats})
+            # 如果是被封装成块了
+            elif name == "block" and self.use_tf_block:
+                features = layer(pcs_flatten, features, batch_length, B_size, N_point)
 
         pc_cls = self.pc_classifier_layer(features.transpose(1, 2)).transpose(1, 2).squeeze(-1)
         pc_cls = torch.sigmoid(pc_cls)
@@ -281,9 +259,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
         # pointcloud_visualize(pcs[0][pc_cls_mask[0]==1])
         n_stitch_pcs_sum = torch.sum(pc_cls_mask, dim=-1)
-        # [全局+局部特征]
-        # stitch_pcs_feats = self._get_stitch_pcs_feats(pcs_feats, n_stitch_pcs_sum, pc_cls_mask, B_size, N_point, self.pc_feat_dim*2)
-        # [仅局部特征]
+
         stitch_pcs_feats = self._get_stitch_pcs_feats(features, n_stitch_pcs_sum, pc_cls_mask, B_size, N_point, self.backbone_feat_dim)
         out_dict.update({"n_stitch_pcs_sum": n_stitch_pcs_sum,})
 
