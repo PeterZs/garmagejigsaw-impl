@@ -583,12 +583,12 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
     cmpfun = lambda x: (x["global_param"])
     for s_idx, stitch_points_list in enumerate(all_stitch_points_list):
         unordered_stitch_points_list = []
-        start_edge_id = stitch_points_list[0][1]["edge_id"]
+        start_panel_id = stitch_points_list[0][1]["edge_id"]
         start_point_idx = 0
         for point_idx, stitch_point in enumerate(stitch_points_list):
             # 如果edge_id发生了变化，或是这个Panel结束了
-            if stitch_point[1]["edge_id"] != start_edge_id or point_idx == len(stitch_points_list)-1:
-                if stitch_point[1]["edge_id"] == start_edge_id and point_idx == len(stitch_points_list)-1:
+            if stitch_point[1]["edge_id"] != start_panel_id or point_idx == len(stitch_points_list)-1:
+                if stitch_point[1]["edge_id"] == start_panel_id and point_idx == len(stitch_points_list)-1:
                     unordered_stitch_points_list.append(stitch_point[1])
 
                 if isCC_order_list[s_idx][1]: reverse = True
@@ -599,7 +599,7 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
                     stitch_points_list[start_point_idx + i][1] = ordered_stitch_points_list[i]
 
                 start_point_idx = point_idx
-                start_edge_id = stitch_point[1]["edge_id"]
+                start_panel_id = stitch_point[1]["edge_id"]
                 unordered_stitch_points_list = [stitch_point[1]]
             else:
                 unordered_stitch_points_list.append(stitch_point[1])
@@ -624,12 +624,12 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
     # 按所在板片进行排序后的 stitch_edge_list
     stitch_edge_list_panelOrder = sorted(stitch_edge_list, key=lambda x: (x["start_point"]["panel_id"],))
     stitch_edge_list_paramOrder = []
-    start_edge_id = stitch_edge_list_panelOrder[0]["start_point"]["panel_id"]
+    start_panel_id = stitch_edge_list_panelOrder[0]["start_point"]["panel_id"]
     for e_idx, stitch_edge in enumerate(stitch_edge_list_panelOrder):
         # 如果panel_id发生了变化，或是这个edge是最后一个
-        if stitch_edge["start_point"]["panel_id"] != start_edge_id or e_idx == len(stitch_edge_list_panelOrder) - 1:
+        if stitch_edge["start_point"]["panel_id"] != start_panel_id or e_idx == len(stitch_edge_list_panelOrder) - 1:
             # 如果最后一个的panel_id没变化
-            if not stitch_edge["start_point"]["panel_id"] != start_edge_id and e_idx == len(stitch_edge_list_panelOrder) - 1:
+            if not stitch_edge["start_point"]["panel_id"] != start_panel_id and e_idx == len(stitch_edge_list_panelOrder) - 1:
                 stitch_edge_list_paramOrder.append(stitch_edge)
 
             # 对这个stitch_edge_list_paramOrder根据global_param进行排序（isCC=false根据起始点排序，isCC=true根据终点点排序）
@@ -639,7 +639,7 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
             optimize_stitch_edge_list(stitch_edge_list_paramOrder, param_dis_optimize_thresh, all_panel_info, all_edge_info)
 
             # 切换到下一个 panel
-            start_edge_id = stitch_edge["start_point"]["panel_id"]
+            start_panel_id = stitch_edge["start_point"]["panel_id"]
             stitch_edge_list_paramOrder = [stitch_edge]
         else:
             stitch_edge_list_paramOrder.append(stitch_edge)
@@ -662,17 +662,19 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
     stitch_edge_list = filtered_stitch_edge_list
 
 
-
+    # [todo] 有BUG
     # 将缝合两端都完全衔接的相邻的缝合进行合并 ---------------------------------------------------------------------------------
     stitch_edge_list_merged = []  # 合并后的缝边
     # 按所在板片进行排序后的 stitch_edge_list
     stitch_edge_list_panelOrder = sorted(stitch_edge_list[::2], key=lambda x: (x["start_point"]["panel_id"],))
     stitch_edge_list_paramOrder = []
-    start_edge_id = stitch_edge_list_panelOrder[0]["start_point"]["panel_id"]
+    sum=0
+    start_panel_id = stitch_edge_list_panelOrder[0]["start_point"]["panel_id"]
     for e_idx, stitch_edge in enumerate(stitch_edge_list_panelOrder):
-        if stitch_edge["start_point"]["panel_id"] != start_edge_id or e_idx == len(stitch_edge_list_panelOrder) - 1:
+        sum+=1
+        if stitch_edge["start_point"]["panel_id"] != start_panel_id or e_idx == len(stitch_edge_list_panelOrder) - 1:
             # 如果最后一个的panel_id没变化
-            if not stitch_edge["start_point"]["panel_id"] != start_edge_id and e_idx == len(stitch_edge_list_panelOrder) - 1:
+            if stitch_edge["start_point"]["panel_id"] == start_panel_id and e_idx == len(stitch_edge_list_panelOrder) - 1:
                 stitch_edge_list_paramOrder.append(stitch_edge)
 
             # 【此时，stitch_edge_list_paramOrder中所有的缝边都位于同一panel上】
@@ -712,14 +714,20 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
                         stitch_edge_list_paramOrder[se_idx][cur_left_key] = start_stitch_edge_previous[pre_left_key]
                         stitch_edge_list_paramOrder[se_idx]["target_edge"][cur_left_key] = end_stitch_edge_previous[pre_left_key]
                         del stitch_edge_list_paramOrder[start_stitch_edge_previous_index]
+
             for se in stitch_edge_list_paramOrder:
                 stitch_edge_list_merged.extend([se, se["target_edge"]])
 
+            # 如果最后一个的panel_id有变化
+            if stitch_edge["start_point"]["panel_id"] != start_panel_id and e_idx == len(stitch_edge_list_panelOrder) - 1:
+                stitch_edge_list_merged.extend([stitch_edge, stitch_edge["target_edge"]])
+
             # 切换到下一个 panel
-            start_edge_id = stitch_edge["start_point"]["panel_id"]
+            start_panel_id = stitch_edge["start_point"]["panel_id"]
             stitch_edge_list_paramOrder = [stitch_edge]
         else:
             stitch_edge_list_paramOrder.append(stitch_edge)
+
     stitch_edge_list = stitch_edge_list_merged
 
 
@@ -732,11 +740,11 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
 
     stitch_edge_list_panelOrder = sorted(stitch_edge_list, key=lambda x: (x["start_point"]["panel_id"],))
     stitch_edge_list_paramOrder = []
-    start_edge_id = stitch_edge_list_panelOrder[0]["start_point"]["panel_id"]
+    start_panel_id = stitch_edge_list_panelOrder[0]["start_point"]["panel_id"]
     for e_idx, stitch_edge in enumerate(stitch_edge_list_panelOrder):
-        if stitch_edge["start_point"]["panel_id"] != start_edge_id or e_idx == len(stitch_edge_list_panelOrder) - 1:
+        if stitch_edge["start_point"]["panel_id"] != start_panel_id or e_idx == len(stitch_edge_list_panelOrder) - 1:
             # 如果最后一个的panel_id没变化
-            if not stitch_edge["start_point"]["panel_id"] != start_edge_id and e_idx == len(stitch_edge_list_panelOrder) - 1:
+            if not stitch_edge["start_point"]["panel_id"] != start_panel_id and e_idx == len(stitch_edge_list_panelOrder) - 1:
                 stitch_edge_list_paramOrder.append(stitch_edge)
 
             # 【此时，stitch_edge_list_paramOrder中所有的缝边都位于同一panel上】
@@ -777,7 +785,7 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
                             point["global_param"] = closed_side_point["global_param"]
 
             # 切换到下一个 panel
-            start_edge_id = stitch_edge["start_point"]["panel_id"]
+            start_panel_id = stitch_edge["start_point"]["panel_id"]
             stitch_edge_list_paramOrder = [stitch_edge]
         else:
             stitch_edge_list_paramOrder.append(stitch_edge)

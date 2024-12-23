@@ -80,6 +80,6 @@ if __name__ == "__main__":
 
 
         # 保存结果 -------------------------------------------------------------------------------------------------------
-        save_dir = "_tmp/garment_json_output"
+        save_dir = "_tmp/inference_ps2es_output"
         save_result(save_dir, data_id=int(batch['data_id']), garment_json=garment_json, fig=fig_comp)
         # input("Press ENTER to continue")
