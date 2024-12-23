@@ -16,11 +16,6 @@ def save_results(obj_dict:dict, meshes:list, garment_save_dir:str, file_path):
     annotations_dir = os.path.join(garment_save_dir,"annotations")
     os.makedirs(annotations_dir, exist_ok=True)
 
-    with open(os.path.join(annotations_dir,"additional_info.json"), "r", encoding="utf-8") as f:
-        js = json.load(f)
-        if js["mesh_file_path"] != file_path:
-            raise ValueError("wrong path")
-
     # save stitch
     stitch_save_path = os.path.join(annotations_dir,"stitch.npy")
     np.save(stitch_save_path, obj_dict["stitch"])

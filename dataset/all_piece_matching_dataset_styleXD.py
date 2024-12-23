@@ -61,21 +61,16 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             min_part_point=30,
             mode= "train",
     ):
-        if mode not in ["train","val","test"]:
+        if mode not in ["train", "val", "test", "inference"]:
             raise ValueError(f"mode=\"{mode}\" is not valid.")
 
         self.mode = mode
         self.data_dir = data_dir
         self.data_types = data_types
-        self.data_list = self._read_data()
-        if self.mode=="train":
-            self.data_list = self.data_list[:10000]
-        elif self.mode=="val":
-            self.data_list = self.data_list[10000:]
-        elif self.mode=="test":
-            self.data_list = self.data_list
 
-        self.data_list = self.data_list[::100]
+        self.data_list = self._read_data()
+
+        # self.data_list = self.data_list[::100]
 
         try:
             with open(os.path.join(data_dir,self.mode,"data_info.json"), "r", encoding="utf-8") as f:
@@ -140,12 +135,14 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         return self.length
 
     def _read_data(self):
-        if self.mode in ["train", "val"]:
+        if self.mode in ["train", "val", "test"]:
+            with open(os.path.join(self.data_dir, "dataset_split", f"{self.mode}.json") ,"r", encoding="utf-8") as f:
+                split = json.load(f)
             mesh_dir = os.path.join(self.data_dir, self.mode)
-            data_list = sorted(glob(os.path.join(mesh_dir, "garment_*")))
+            data_list = [os.path.join(mesh_dir, dir_) for dir_ in split]
             return data_list
         # [todo] 根据数据类型读取不同的数据去inference
-        if self.mode == "test":
+        if self.mode == "inference":
             assert len(self.data_types)!=0, "self.data_types can't be empty in inference."
             self.data_types = list(dict.fromkeys(self.data_types))  # 去除重复
             data_list = []
@@ -975,6 +972,47 @@ def build_stylexd_dataloader_test(cfg):
     # test用的是董远生成的不带l的obj文件，用边界点采样法
     data_dict = dict(
         mode="test",
+        data_dir=cfg.DATA.DATA_DIR,
+        data_keys=cfg.DATA.DATA_KEYS,
+        data_types=cfg.DATA.DATA_TYPES.TEST,
+
+        num_points=cfg.DATA.NUM_PC_POINTS,
+        min_num_part=cfg.DATA.MIN_NUM_PART,
+        max_num_part=cfg.DATA.MAX_NUM_PART,
+
+        shrink_mesh=cfg.DATA.SHRINK_MESH.TEST,
+        shrink_mesh_param=cfg.DATA.SHRINK_MESH_PARAM.TEST,
+
+        pcs_sample_type=cfg.DATA.PCS_SAMPLE_TYPE.TEST,
+        pcs_noise_type=cfg.DATA.PCS_NOISE_TYPE,
+        pcs_noise_strength=cfg.DATA.PCS_NOISE_STRENGTH,
+        panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.TEST,
+
+        scale_range=cfg.DATA.SCALE_RANGE,
+        rot_range=cfg.DATA.ROT_RANGE,
+        trans_range=cfg.DATA.TRANS_RANGE,
+
+        overfit=cfg.DATA.OVERFIT,
+        min_part_point=cfg.DATA.MIN_PART_POINT,
+
+        read_uv = True
+    )
+    test_set = AllPieceMatchingDataset_stylexd(**data_dict)
+    test_loader = DataLoader(
+        dataset=test_set,
+        batch_size=1,
+        shuffle=cfg.DATA.SHUFFLE,
+        num_workers=1,
+        pin_memory=True,
+        drop_last=False,
+        persistent_workers=(cfg.NUM_WORKERS > 0),
+    )
+    return test_loader
+
+def build_stylexd_dataloader_inference(cfg):
+    # test用的是董远生成的不带l的obj文件，用边界点采样法
+    data_dict = dict(
+        mode="inference",
         data_dir=cfg.DATA.DATA_DIR,
         data_keys=cfg.DATA.DATA_KEYS,
         data_types=cfg.DATA.DATA_TYPES.TEST,

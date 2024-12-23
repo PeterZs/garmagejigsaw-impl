@@ -18,15 +18,18 @@ if __name__ == "__main__":
     # stylexd_dir = "/home/Ex1/Datasets/S3D/StyleXD/StyleXD_with_stitch"
     # out_dir = "/home/Ex1/Datasets/S3D/StyleXD/preprocessed_jigsaw_train"
     # file_list = glob(os.path.join(stylexd_dir,"*.obj"))
+    START_IDX = 11077
 
-    stylexd_dir = "/home/Ex1/Download/Termius/objs_with_stitch"
+    stylexd_dir = "/home/Ex1/Download/Termius"
     # out_dir = "/home/Ex1/Datasets/S3D/StyleXD/preprocessed_jigsaw_train"
-    out_dir = "data/stylexd_jigsaw/train"
-    file_list = glob(os.path.join(stylexd_dir,"Q*","*","*","*","*","*.obj"))
+    out_dir = "data/stylexd_jigsaw/additional_data"
+    file_list = glob(os.path.join(stylexd_dir,"Q*","**","*.obj"), recursive=True)
     for idx, file_path in tqdm(list(enumerate(file_list))):
+        garment_idx = idx + START_IDX
+
         base_name = os.path.basename(file_path)
 
-        garment_save_dir = os.path.join(out_dir,"garment_"+f"{idx}".zfill(5))
+        garment_save_dir = os.path.join(out_dir,"garment_"+f"{garment_idx}".zfill(5))
 
         obj_dict = parse_obj_file(file_path)
         # stitch_visualize(np.array(obj_dict["vertices"]),np.array(obj_dict["stitch"]))

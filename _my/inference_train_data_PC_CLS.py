@@ -2,7 +2,7 @@
 
 import torch
 from model import build_model
-from dataset import build_stylexd_dataloader_test, build_stylexd_dataloader_train_val
+from dataset import build_stylexd_dataloader_inference, build_stylexd_dataloader_train_val
 from utils import stitch_mat2indices, pointcloud_and_stitch_visualize, pointcloud_visualize
 
 
@@ -18,7 +18,7 @@ if __name__ == "__main__":
 
     model = build_model(cfg).load_from_checkpoint(cfg.WEIGHT_FILE)
     train_loader = build_stylexd_dataloader_train_val(cfg)[0]
-    test_loader = build_stylexd_dataloader_test(cfg)
+    test_loader = build_stylexd_dataloader_inference(cfg)
     for batch in train_loader:
         inf_rst=model(batch)
         B_size,N_point,_ = batch["pcs"].shape

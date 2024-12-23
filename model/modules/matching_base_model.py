@@ -126,12 +126,7 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
     def forward_pass(self, data_dict, mode, optimizer_idx):
         loss_dict = self.loss_function(data_dict, optimizer_idx=optimizer_idx, mode=mode)
         # in training we log for every step
-        if mode == 'train' and self.local_rank == 0:
-            log_dict = {f'{mode}/{k}': v.item() if isinstance(v, torch.Tensor) else v for k, v in loss_dict.items()}
-            data_name = [k for k in self.trainer.profiler.recorded_durations.keys() if 'prepare_data' in k][0]
-            log_dict[f'{mode}/data_time'] = self.trainer.profiler.recorded_durations[data_name][-1]
-            self.log_dict(log_dict, logger=True, sync_dist=False, rank_zero_only=True)
-        if mode == 'val' and self.local_rank == 0:
+        if (mode == 'train' or mode == 'val' or mode == 'test') and self.local_rank == 0:
             log_dict = {f'{mode}/{k}': v.item() if isinstance(v, torch.Tensor) else v for k, v in loss_dict.items()}
             data_name = [k for k in self.trainer.profiler.recorded_durations.keys() if 'prepare_data' in k][0]
             log_dict[f'{mode}/data_time'] = self.trainer.profiler.recorded_durations[data_name][-1]

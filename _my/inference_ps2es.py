@@ -5,7 +5,7 @@
 import os.path
 
 from model import build_model
-from dataset import build_stylexd_dataloader_test
+from dataset import build_stylexd_dataloader_inference
 
 from utils import  to_device, get_pointstitch, pointstitch_2_edgestitch
 from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcloud_and_stitch_logits_visualize, composite_visualize
@@ -30,7 +30,7 @@ if __name__ == "__main__":
     model = build_model(cfg).load_from_checkpoint(cfg.WEIGHT_FILE).cuda()
     # 一些超参数从cfg文件中获得，不用ckpt中的
     model.pc_cls_threshold = cfg.MODEL.PC_CLS_THRESHOLD
-    test_loader = build_stylexd_dataloader_test(cfg)
+    test_loader = build_stylexd_dataloader_inference(cfg)
 
     for batch in test_loader:
         batch = to_device(batch, model.device)

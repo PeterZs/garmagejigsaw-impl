@@ -1,12 +1,12 @@
 from dataset import build_stylexd_dataloader_train_val
-from dataset import build_stylexd_dataloader_test
+from dataset import build_stylexd_dataloader_inference
 
 from utils import panel_optimize
 from utils import pointcloud_visualize
 
 def test_model(cfg):
     train_loader, val_loader = build_stylexd_dataloader_train_val(cfg)
-    test_loader = build_stylexd_dataloader_test(cfg)
+    test_loader = build_stylexd_dataloader_inference(cfg)
     for batch in test_loader:
 
         pcs=batch["pcs"].squeeze(0).cuda()

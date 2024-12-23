@@ -94,10 +94,13 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
                 self.tf_layers = []
         # 如果使用 PointTransformer Block
         else:
+            layers_name = ["self", "cross", "self", "cross", "self", "cross"]
+            self.tf_layer_num = len(layers_name)
             self.tf_layers_ml = nn.ModuleList()
             self.tf_layers = []
             for i in range(self.tf_layer_num):
                 tf_block = PointTransformerBlock(
+                    name=layers_name[i],
                     backbone_feat_dim=self.backbone_feat_dim,
                     num_points=self.N_point,
                     n_heads=self.cfg.MODEL.TF_NUM_HEADS,
