@@ -435,7 +435,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             pre_arranged = int(min_samplenum_prepanel * X>2)，是为了能百分之百保证采样一次就能达到每个 Panel 的采样数量都大于 min_samplenum_prepanel
         由于 min_expect 不能设的过大（会导致给太多的Panel预分配采样点），因此依旧可能有Panel采样点数量过少，因此还是需要 check 最多 max_check_times 次
         """
-        min_expect = min_samplenum_prepanel * 3             # 采样点的期望值低于 min_expect 的会被预分配采样点数量
+        min_expect = min_samplenum_prepanel * 4             # 采样点的期望值低于 min_expect 的会被预分配采样点数量
         pre_arranged = int(min_samplenum_prepanel * 2.5)    # 预分配的采样点数量
         assert pre_arranged * num_parts < num_points, "min_samplenum_prepanel too large may cause error"
         sample_num_arrangement[expect_sample_nums <= min_expect] = pre_arranged
@@ -729,7 +729,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         mesh_files = sorted(glob(os.path.join(data_folder, "piece_*.obj")))
 
         if not self.min_num_part <= len(mesh_files) <= self.max_num_part:
-            raise ValueError
+            raise ValueError(f"Part num of {data_folder}({len(mesh_files)}) out of range [{self.min_num_part}:{self.max_num_part}]")
 
         meshes = [trimesh.load(mesh_file, force="mesh", process=False) for mesh_file in mesh_files]
 
@@ -805,7 +805,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             stitches = np.load(os.path.join(data_folder, "annotations", "stitch.npy"))
             # stitch_visualize(np.concatenate([np.array(mesh.vertices) for mesh in meshes], axis = 0), stitch)
             # [todo] 将来如果有空，试着从根本上解决这个问题
-            max_check_times = 4  # 最大重复采样次数
+            max_check_times = 8  # 最大重复采样次数
             min_samplenum_prepanel = 4  # 单个Panel上的最少采样点数量
             sample_result = self.sample_point_byStitch(meshes, self.num_points, stitches, full_uv_info, n_rings=2,
                                                        max_check_times=max_check_times, min_samplenum_prepanel=min_samplenum_prepanel)
@@ -1059,7 +1059,7 @@ def build_stylexd_dataloader_train_val(cfg):
     val_loader = DataLoader(
         dataset=val_set,
         batch_size=cfg.BATCH_SIZE,
-        shuffle=True,
+        shuffle=False,
         num_workers=cfg.NUM_WORKERS,
         pin_memory=True,
         drop_last=False,
