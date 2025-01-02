@@ -23,16 +23,16 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         self.w_mat_loss = self.cfg.MODEL.LOSS.w_mat_loss    # 缝合损失
         self.pc_cls_threshold = self.cfg.MODEL.PC_CLS_THRESHOLD  # 二分类结果的阈值
 
-        self.use_point_feature = cfg.MODEL.get("USE_POINT_FEATURE", True)                   # 是否提取UV的全局特征
+        self.use_point_feature = cfg.MODEL.get("USE_POINT_FEATURE", True)                   # 是否提取点的特征
         self.use_local_point_feature = cfg.MODEL.get("USE_LOCAL_POINT_FEATURE", True)       # 是否提取点的局部特征
         self.use_global_point_feature = cfg.MODEL.get("USE_GLOBAL_POINT_FEATURE", True)     # 是否提取点的局部特征
 
-        self.use_uv_feature = cfg.MODEL.get("USE_UV_FEATURE", False)
+        self.use_uv_feature = cfg.MODEL.get("USE_UV_FEATURE", False)    # 是否使用UV特征
 
         self.pc_feat_dim = self.cfg.MODEL.get("PC_FEAT_DIM", 128)
         self.uv_feat_dim = self.cfg.MODEL.get("UV_FEAT_DIM", 128)
 
-        # 计算backbone提取的特征维度
+        # === 计算backbone提取的特征维度 ===
         self.backbone_feat_dim = 0
         if self.use_point_feature:
             if self.use_local_point_feature:
@@ -62,7 +62,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         self.tf_layer_num = cfg.MODEL.get("TF_LAYER_NUM", 1)
         assert self.tf_layer_num >= 0, "tf_layer_num too small"
         self.use_tf_block = cfg.MODEL.get("USE_TF_BLOCK", False)
-        # 如果不使用 PointTransformer Block (这种方法仅能够支持 self.tf_layer_num <= 2)
+        # === 如果不使用 PointTransformer Block === (这种方法仅能够支持 self.tf_layer_num <= 2，在层数过多的情况下会出现训练过程中的梯度骤增)
         if not self.use_tf_block:
             # [todo] 分成以下三种情况是为了兼容过去的checkpoints，将来可以考虑将这三个if整合到一起，重新训练一遍
             if self.tf_layer_num == 1:
@@ -92,9 +92,9 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
                     self.tf_layers.append(("cross", cross_tf_layer))
             elif self.tf_layer_num == 0:
                 self.tf_layers = []
-        # 如果使用 PointTransformer Block
+        # === 如果使用 PointTransformer Block ===
         else:
-            layers_name = ["self", "cross", "self", "cross", "self", "cross"]
+            layers_name = ["self", "cross"] * self.tf_layer_num
             self.tf_layer_num = len(layers_name)
             self.tf_layers_ml = nn.ModuleList()
             self.tf_layers = []
@@ -114,17 +114,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         self.is_train_in_stages = self.cfg.MODEL.get("IS_TRAIN_IN_STAGE", False)  # 是否分阶段学习
         self.init_dynamic_adjustment()  # 分阶段学习的初始化
 
-
-    # def _init_encoder(self):
-    #     in_feat_dim = 3
-    #     encoder = build_encoder(
-    #         self.cfg.MODEL.ENCODER,
-    #         feat_dim=self.pc_feat_dim,
-    #         global_feat=False,
-    #         in_feat_dim=in_feat_dim,
-    #     )
-    #     return encoder
-
+    # 提取点云特征的pointnet2
     def _init_pc_encoder(self):
         in_feat_dim = 3
         encoder = build_encoder(
@@ -134,7 +124,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             in_feat_dim=in_feat_dim,
         )
         return encoder
-
+    # 提取UV特征的pointnet2
     def _init_uv_encoder(self):
         in_feat_dim = 3
         encoder = build_encoder(
@@ -145,15 +135,6 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         )
         return encoder
 
-    # [全局+局部特征]
-    # def _init_affinity_extractor(self):
-    #     affinity_extractor = nn.Sequential(
-    #         nn.BatchNorm1d(self.pc_feat_dim*2),
-    #         nn.ReLU(inplace=True),
-    #         nn.Conv1d(self.pc_feat_dim*2, self.aff_feat_dim, 1),
-    #     )
-    #     return affinity_extractor
-    # [仅局部特征]
     def _init_affinity_extractor(self):
         affinity_extractor = nn.Sequential(
             nn.BatchNorm1d(self.backbone_feat_dim),
@@ -218,7 +199,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         B_size, N_point, _ = pcs.shape
 
         batch_length = get_batch_length_from_part_points(n_pcs, n_valids=n_valid).to(self.device)
-
+        # === 用PointNet从点云或UV中提取特征，并拼接 ===
         features = []
         if self.use_point_feature:
             if self.use_local_point_feature:
@@ -233,8 +214,8 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         assert len(features)>0, "None feature extracted!"
         features = torch.concat(features,dim=-1)
 
+        # === 提取出的特征输入到PointTransformer Layers\Blocks ===
         pcs_flatten = pcs.reshape(-1, 3).contiguous()
-
         # 顶点特征输入到PointTransformer层中，获取点与点之间的关系
         for name, layer in self.tf_layers:
             # 如果是自注意力层
@@ -253,13 +234,14 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             elif name == "block" and self.use_tf_block:
                 features = layer(pcs_flatten, features, batch_length, B_size, N_point)
 
+        # 预测点分类
         pc_cls = self.pc_classifier_layer(features.transpose(1, 2)).transpose(1, 2).squeeze(-1)
         pc_cls = torch.sigmoid(pc_cls)
         pc_cls_mask = ((pc_cls>self.pc_cls_threshold) * 1)
-
         out_dict.update({"pc_cls": pc_cls,
                          "pc_cls_mask": pc_cls_mask,})
 
+        # === 预测点点缝合关系 ===
         # pointcloud_visualize(pcs[0][pc_cls_mask[0]==1])
         n_stitch_pcs_sum = torch.sum(pc_cls_mask, dim=-1)
 
@@ -464,53 +446,3 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
                 "Charts/w_cls_loss": torch.tensor(self.w_cls_loss, dtype=torch.float32),
                 "Charts/w_mat_loss": torch.tensor(self.w_mat_loss, dtype=torch.float32),
             },logger=True, sync_dist=False, rank_zero_only=True)
-
-    @torch.no_grad()
-    def compute_label(self, part_pcs, nps, n_valid, label_thresholds):
-        """
-        Compute ground truth label of fracture points.
-        :param part_pcs: all points from all pieces, [B, N_sum, 3]
-        :param nps: number of points for each piece, [B, N]
-        :param n_valid: number of valid parts in each object, [B]
-        :param label_thresholds: threshold for ground truth label, [B, N_sum]
-        :return: labels: 1 if point is a fracture point and 0 otherwise [B, N_sum]
-        """
-        B, N_, _ = part_pcs.shape
-        dists = torch.sqrt(square_distance(part_pcs, part_pcs))
-        neg_mask = self.diagonal_square_mask(
-            shape=(B, N_, N_), n_pcs=nps, n_part=n_valid, pos_msk=0, neg_msk=1e6
-        )
-        dists = dists + neg_mask
-        dists_min, _ = torch.min(dists, dim=-1)
-        dists_min = dists_min.reshape(B, N_)
-        labels = (dists_min < label_thresholds).to(torch.int64)
-        return labels
-
-    @torch.no_grad()
-    def diagonal_square_mask(
-            self, shape, n_pcs, n_part=None, pos_msk=0.0, neg_msk=1000.0
-    ):
-        """
-        generate a mask which diagonal matrices are neg_msk and others pos_mask
-        :param shape: list like [B, N_, N_], the shape of wanted mask
-        :param n_pcs: [B, P] points of each part
-        :param n_part: [B] number of parts of each object
-        :param pos_msk: positive mask
-        :param neg_msk: negative mask
-        :return: msk: a matrix mask out diagonal squares with neg_msk.
-        """
-        # shape [B, N_, N_]
-        B = n_pcs.shape[0]
-        n_pcs_cumsum = torch.cumsum(n_pcs, dim=-1)  # [B, P]
-        if n_part is None:
-            P = n_pcs_cumsum.shape[-1]
-            n_part = torch.tensor([P for _ in range(B)], dtype=torch.long)
-        msk = torch.ones(shape).to(self.device) * neg_msk
-        for b in range(B):
-            n_p = n_part[b]
-            msk[b, : n_pcs_cumsum[b, n_p - 1], : n_pcs_cumsum[b, n_p - 1]] = pos_msk
-            for p in range(n_part[b]):
-                st = 0 if p == 0 else n_pcs_cumsum[b, p - 1]
-                ed = n_pcs_cumsum[b, p]
-                msk[b, st:ed, st:ed] = neg_msk
-        return msk

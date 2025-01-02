@@ -7,7 +7,7 @@ from utils import (pointcloud_visualize, pointcloud_and_stitch_visualize, pointc
 
 def get_pointstitch(batch, inf_rst,
                     sym_choice = "sym_max", mat_choice = "hun",
-                    filter_neighbor_stitch = True, filter_neighbor=7,
+                    filter_neighbor_stitch = True,  filter_neighbor=7,
                     filter_too_long = True, filter_length = 0.2,
                     filter_too_small = True, filter_logits = 0.2,
                     only_triu = False, filter_uncontinue = False,
@@ -20,9 +20,9 @@ def get_pointstitch(batch, inf_rst,
     :param mat_choice:      # hun:hungarian algorithm;  col_max:choose max num of each column;
     :param filter_neighbor_stitch:  # filter stitches between filter_neighbor step neighbor
     :param filter_neighbor
-    :param filter_too_long:     # filter stitches whose distance longer than filter_length
+    :param filter_too_long:         # filter stitches whose distance longer than filter_length
     :param filter_length:
-    :param filter_too_small:    # filter stitches whose logits smaller than filter_logits
+    :param filter_too_small:        # filter stitches whose logits smaller than filter_logits
     :param filter_logits:
     :param only_triu:       # if true, the result map will only include triu part of stitches
     :param show_pc_cls:     # visualize pointcloud classify result in 3D space
@@ -48,7 +48,7 @@ def get_pointstitch(batch, inf_rst,
     # 禁止相邻点相交 ------------------------------------------------------------------------------------------------------
     # 禁止点自交
     stitch_mat_pred_[0][torch.eye(stitch_mat_pred_.shape[-1], stitch_mat_pred_.shape[-1]) == 1] = 0
-    # 禁止相邻点相交
+    # 禁止相邻点相交 [todo] 收束类型的相邻点相交不应该被筛除，这个可以通过缝合距离来判断
     if filter_neighbor_stitch:
         i_indices = torch.arange(stitch_mat_pred_.shape[-1]).view(-1, 1).repeat(1, stitch_mat_pred_.shape[-1])
         j_indices = torch.arange(stitch_mat_pred_.shape[-1]).view(1, -1).repeat(stitch_mat_pred_.shape[-1], 1)
