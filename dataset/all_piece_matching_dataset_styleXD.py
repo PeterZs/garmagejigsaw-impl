@@ -666,7 +666,10 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
     def load_full_uv_info(self, data_folder):
         if self.read_uv:
-            full_uv_info = np.load(os.path.join(data_folder, "annotations", "uv.npy"))
+            try:
+                full_uv_info = np.load(os.path.join(data_folder, "annotations", "uv.npy"))
+            except ValueError:
+                a=1
             return full_uv_info
         else:
             return None
@@ -1023,7 +1026,7 @@ def build_stylexd_dataloader_test(cfg):
         overfit=cfg.DATA.OVERFIT,
         min_part_point=cfg.DATA.MIN_PART_POINT,
 
-        read_uv = True
+        read_uv=True,
     )
     test_set = AllPieceMatchingDataset_stylexd(**data_dict)
     test_loader = DataLoader(

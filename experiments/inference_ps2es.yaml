@@ -44,7 +44,7 @@ CALLBACK:
 DATA:
   DATA_DIR: "data/stylexd_jigsaw"
   DATA_TYPES:
-    TEST: ["StyleGen"]  # mul-selections:["StyleGen", "StyleGenML", "Brep128", "Brep256", "Brep512", "Brep1024"]
+    TEST: ["StyleGen256"]  # mul-selections:["StyleGen", "StyleGenML", "StyleGen256", "Brep128", "Brep256", "Brep512", "Brep1024"]
 
   NUM_PC_POINTS: 3000
 

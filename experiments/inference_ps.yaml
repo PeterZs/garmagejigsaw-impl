@@ -5,8 +5,8 @@ PROJECT: jigsaw
 
 DATASET: stylexd.all_piece_matching
 
-# best is pipline4/?
-WEIGHT_FILE: pretrained/PCglobal+PClocal+UV/model_epoch=059.ckpt
+# best is pipline4/V6_E59.ckpt
+WEIGHT_FILE: pretrained/V8_PC/model_epoch=159.ckpt
 
 RESUME: false
 WANDB:
@@ -26,11 +26,11 @@ TRAIN:
   VAL_EVERY: 5
 
 MODEL:
-  USE_POINT_FEATURE: True   # 是否提取点特征
-  USE_LOCAL_POINT_FEATURE: True    # 是否提取点的局部特征
-  USE_GLOBAL_POINT_FEATURE: True  # 是否提取点的全局特征
-  USE_UV_FEATURE: True     # 是否提取UV特征
-  TF_LAYER_NUM: 1  # PT层的数量
+#  USE_POINT_FEATURE: True   # 是否提取点特征
+#  USE_LOCAL_POINT_FEATURE: True    # 是否提取点的局部特征
+#  USE_GLOBAL_POINT_FEATURE: False  # 是否提取点的全局特征
+#  USE_UV_FEATURE: False     # 是否提取UV特征
+#  TF_LAYER_NUM: 1  # PT层的数量
   PC_CLS_THRESHOLD: 0.5
   LOSS:
     w_cls_loss: 0.0
@@ -69,8 +69,6 @@ DATA:
   PCS_NOISE_TYPE: default  # default  normal
   PCS_NOISE_STRENGTH: 0.
   USE_STITCH_NOISE: False  # 是否沿着缝合线加噪（仅训练）
-  STITCH_NOISE_STRENGTH: 1
-  STITCH_NOISE_RANDOM_RANGE: [0.8, 2.2]
 
   PANEL_NOISE_TYPE:  # 在Panel上加噪声的类型
     TRAIN: default
@@ -79,6 +77,7 @@ DATA:
   SCALE_RANGE: 0.
   ROT_RANGE: 0.
   TRANS_RANGE: 0.
+
 
 # STATS is for eval
 STATS: "./results/jigsaw_4x4_128_512_250e_cosine_everyday/stats/eval"

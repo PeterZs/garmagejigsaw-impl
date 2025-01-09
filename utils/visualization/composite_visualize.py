@@ -217,7 +217,5 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None, c
         plot_bgcolor='rgba(0,0,0,0)'
 
     )
-
-
     return fig
 

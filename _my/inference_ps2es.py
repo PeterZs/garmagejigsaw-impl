@@ -12,10 +12,11 @@ from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcl
 from utils.inference.save_result import save_result
 
 if __name__ == "__main__":
-    data_type = "StyleGen"
+    data_type = "StyleGen_256"
     if not data_type in [
         "StyleGen",
         "StyleGen_multilayer",   # multi-layer of StyleGen data
+        "StyleGen_256",
         "brep_reso_128",
         "brep_reso_256",
         "brep_reso_512",
@@ -45,7 +46,7 @@ if __name__ == "__main__":
                                 filter_too_long=True, filter_length=0.2,
                                 filter_too_small=True, filter_logits=0.18,
                                 only_triu=True, filter_uncontinue=False,
-                                show_pc_cls=False, show_stitch=False))
+                                show_pc_cls=False, show_stitch=True))
         elif data_type == "StyleGen_multilayer":
             stitch_mat_full, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
@@ -54,6 +55,15 @@ if __name__ == "__main__":
                                 filter_too_long=True, filter_length=0.2,
                                 filter_too_small=True, filter_logits=0.05,
                                 only_triu=True, filter_uncontinue=False,
+                                show_pc_cls=False, show_stitch=False))
+        elif data_type == "StyleGen_256":
+            stitch_mat_full, stitch_indices_full, logits = (
+                get_pointstitch(batch, inf_rst,
+                                sym_choice="sym_max", mat_choice="col_max",
+                                filter_neighbor_stitch=False, filter_neighbor = 5,
+                                filter_too_long=False, filter_length=0.2,
+                                filter_too_small=False, filter_logits=0.05,
+                                only_triu=False, filter_uncontinue=False,
                                 show_pc_cls=False, show_stitch=False))
         elif data_type == "brep_reso_128":
             stitch_mat_full, stitch_indices_full, logits = (
@@ -71,7 +81,7 @@ if __name__ == "__main__":
         # 从点点缝合关系获取边边缝合关系 -------------------------------------------------------------------------------------
         edgestitch_results = pointstitch_2_edgestitch(batch, inf_rst,
                                                 stitch_mat_full, stitch_indices_full,
-                                                unstitch_thresh=15, fliter_len=3,
+                                                unstitch_thresh=10, fliter_len=3,
                                                 param_dis_optimize_thresh=0.9)
         garment_json = edgestitch_results["garment_json"]
 
@@ -80,6 +90,6 @@ if __name__ == "__main__":
 
 
         # 保存结果 -------------------------------------------------------------------------------------------------------
-        save_dir = "_tmp/garment_json_output"
+        save_dir = "_tmp/inference_ps2es_output"
         save_result(save_dir, data_id=int(batch['data_id']), garment_json=garment_json, fig=fig_comp)
         # input("Press ENTER to continue")
