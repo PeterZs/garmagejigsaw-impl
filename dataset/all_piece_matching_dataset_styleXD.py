@@ -15,6 +15,7 @@ import trimesh.sample
 
 from matplotlib import pyplot as plt
 from scipy.spatial.transform import Rotation as R
+from torch import inference_mode
 from torch.utils.data import Dataset, DataLoader
 from scipy.ndimage import convolve1d
 
@@ -175,8 +176,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         pc_centroid = get_pc_bbox(pc)[0]
         # SCALE ------------------------------
         pc = pc - pc_centroid[None]
-        # [todo]0.95改回去1
-        # scale_gt = (np.random.rand(1) * self.scale_range) + 1.0
+
         scale_gt = (np.random.rand(1) * self.scale_range) * noise_strength_S + 1
         pc = pc*scale_gt
 
@@ -703,7 +703,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         else:
             raise ValueError(f"noise_type \"{noise_type}\" is not valid.")
 
-    # [todo] 根据训练、测试去读取不同的数据
     def load_meshes(self, data_folder):
         mesh_files = sorted(glob(os.path.join(data_folder, "piece_*.obj")))
 
@@ -1012,7 +1011,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             mat_gt = stitch_indices2mat(self.num_points, mat_gt)
             data_dict["mat_gt"] = mat_gt
 
-            # [todo] 改完后用下面的代码测试下
             # pointcloud_and_stitch_visualize(cur_pcs,mat_gt)
 
             # 平均缝合长度
@@ -1060,7 +1058,7 @@ def build_stylexd_dataloader_train_val(cfg):
     train_loader = DataLoader(
         dataset=train_set,
         batch_size=cfg.BATCH_SIZE,
-        shuffle=cfg.DATA.SHUFFLE,  # [todo] 真的开始训练之后改成True
+        shuffle=cfg.DATA.SHUFFLE,
         num_workers=cfg.NUM_WORKERS,
         pin_memory=True,
         drop_last=True,
@@ -1087,46 +1085,46 @@ def build_stylexd_dataloader_train_val(cfg):
     )
     return train_loader, val_loader
 
-def build_stylexd_dataloader_test(cfg):
-    # test用的是董远生成的不带l的obj文件，用边界点采样法
-    data_dict = dict(
-        mode="test",
-        data_dir=cfg.DATA.DATA_DIR,
-        data_keys=cfg.DATA.DATA_KEYS,
-        data_types=cfg.DATA.DATA_TYPES.TEST,
-
-        num_points=cfg.DATA.NUM_PC_POINTS,
-        min_num_part=cfg.DATA.MIN_NUM_PART,
-        max_num_part=cfg.DATA.MAX_NUM_PART,
-
-        shrink_mesh=cfg.DATA.SHRINK_MESH.TEST,
-        shrink_mesh_param=cfg.DATA.SHRINK_MESH_PARAM.TEST,
-
-        pcs_sample_type=cfg.DATA.PCS_SAMPLE_TYPE.TEST,
-        pcs_noise_type=cfg.DATA.PCS_NOISE_TYPE,
-        pcs_noise_strength=cfg.DATA.PCS_NOISE_STRENGTH,
-        panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.TEST,
-
-        scale_range=cfg.DATA.SCALE_RANGE,
-        rot_range=cfg.DATA.ROT_RANGE,
-        trans_range=cfg.DATA.TRANS_RANGE,
-
-        overfit=cfg.DATA.OVERFIT,
-        min_part_point=cfg.DATA.MIN_PART_POINT,
-
-        read_uv=True,
-    )
-    test_set = AllPieceMatchingDataset_stylexd(**data_dict)
-    test_loader = DataLoader(
-        dataset=test_set,
-        batch_size=1,
-        shuffle=cfg.DATA.SHUFFLE,
-        num_workers=1,
-        pin_memory=True,
-        drop_last=False,
-        persistent_workers=(cfg.NUM_WORKERS > 0),
-    )
-    return test_loader
+# def build_stylexd_dataloader_test(cfg):
+#     # test用的是董远生成的不带l的obj文件，用边界点采样法
+#     data_dict = dict(
+#         mode="test",
+#         data_dir=cfg.DATA.DATA_DIR,
+#         data_keys=cfg.DATA.DATA_KEYS,
+#         data_types=cfg.DATA.DATA_TYPES.TEST,
+#
+#         num_points=cfg.DATA.NUM_PC_POINTS,
+#         min_num_part=cfg.DATA.MIN_NUM_PART,
+#         max_num_part=cfg.DATA.MAX_NUM_PART,
+#
+#         shrink_mesh=cfg.DATA.SHRINK_MESH.TEST,
+#         shrink_mesh_param=cfg.DATA.SHRINK_MESH_PARAM.TEST,
+#
+#         pcs_sample_type=cfg.DATA.PCS_SAMPLE_TYPE.TEST,
+#         pcs_noise_type=cfg.DATA.PCS_NOISE_TYPE,
+#         pcs_noise_strength=cfg.DATA.PCS_NOISE_STRENGTH,
+#         panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.TEST,
+#
+#         scale_range=cfg.DATA.SCALE_RANGE,
+#         rot_range=cfg.DATA.ROT_RANGE,
+#         trans_range=cfg.DATA.TRANS_RANGE,
+#
+#         overfit=cfg.DATA.OVERFIT,
+#         min_part_point=cfg.DATA.MIN_PART_POINT,
+#
+#         read_uv=True,
+#     )
+#     test_set = AllPieceMatchingDataset_stylexd(**data_dict)
+#     test_loader = DataLoader(
+#         dataset=test_set,
+#         batch_size=1,
+#         shuffle=cfg.DATA.SHUFFLE,
+#         num_workers=1,
+#         pin_memory=True,
+#         drop_last=False,
+#         persistent_workers=(cfg.NUM_WORKERS > 0),
+#     )
+#     return test_loader
 
 def build_stylexd_dataloader_inference(cfg):
     # test用的是董远生成的不带l的obj文件，用边界点采样法
@@ -1134,19 +1132,19 @@ def build_stylexd_dataloader_inference(cfg):
         mode="inference",
         data_dir=cfg.DATA.DATA_DIR,
         data_keys=cfg.DATA.DATA_KEYS,
-        data_types=cfg.DATA.DATA_TYPES.TEST,
+        data_types=cfg.DATA.DATA_TYPES.INFERENCE,
 
         num_points=cfg.DATA.NUM_PC_POINTS,
         min_num_part=cfg.DATA.MIN_NUM_PART,
         max_num_part=cfg.DATA.MAX_NUM_PART,
 
-        shrink_mesh=cfg.DATA.SHRINK_MESH.TEST,
-        shrink_mesh_param=cfg.DATA.SHRINK_MESH_PARAM.TEST,
+        shrink_mesh=cfg.DATA.SHRINK_MESH.INFERENCE,
+        shrink_mesh_param=cfg.DATA.SHRINK_MESH_PARAM.INFERENCE,
 
-        pcs_sample_type=cfg.DATA.PCS_SAMPLE_TYPE.TEST,
+        pcs_sample_type=cfg.DATA.PCS_SAMPLE_TYPE.INFERENCE,
         pcs_noise_type=cfg.DATA.PCS_NOISE_TYPE,
         pcs_noise_strength=cfg.DATA.PCS_NOISE_STRENGTH,
-        panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.TEST,
+        panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.INFERENCE,
 
         scale_range=cfg.DATA.SCALE_RANGE,
         rot_range=cfg.DATA.ROT_RANGE,
@@ -1157,9 +1155,9 @@ def build_stylexd_dataloader_inference(cfg):
 
         read_uv = True
     )
-    test_set = AllPieceMatchingDataset_stylexd(**data_dict)
-    test_loader = DataLoader(
-        dataset=test_set,
+    inference_mode_set = AllPieceMatchingDataset_stylexd(**data_dict)
+    inference_loader = DataLoader(
+        dataset=inference_mode_set,
         batch_size=1,
         shuffle=cfg.DATA.SHUFFLE,
         num_workers=1,
@@ -1167,4 +1165,4 @@ def build_stylexd_dataloader_inference(cfg):
         drop_last=False,
         persistent_workers=(cfg.NUM_WORKERS > 0),
     )
-    return test_loader
+    return inference_loader

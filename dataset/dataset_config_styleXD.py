@@ -11,7 +11,7 @@ __C.STYLEXD.DATA_DIR = "data/obj_format_part_under20"
 __C.STYLEXD.DATA_KEYS = ("part_sids",)
 
 __C.STYLEXD.DATA_TYPES = edict()
-__C.STYLEXD.DATA_TYPES.TEST = []  # 多选["StyleGen", "StyleGenML", "Brep128", "Brep256", "Brep512", "Brep1024"]
+__C.STYLEXD.DATA_TYPES.INFERENCE = []  # 多选["StyleGen", "StyleGenML", "Brep128", "Brep256", "Brep512", "Brep1024"]
 
 __C.STYLEXD.SHUFFLE = True
 
@@ -38,17 +38,17 @@ TYPES：
 __C.STYLEXD.PCS_SAMPLE_TYPE = edict()
 __C.STYLEXD.PCS_SAMPLE_TYPE.TRAIN = "stitch"
 __C.STYLEXD.PCS_SAMPLE_TYPE.VAL = "stitch"
-__C.STYLEXD.PCS_SAMPLE_TYPE.TEST = "boundary_pcs"
+__C.STYLEXD.PCS_SAMPLE_TYPE.INFERENCE = "boundary_pcs"
 
 # 在读取mesh之后，对mesh进行缩水操作（最外面一圈点往内部收缩）
 __C.STYLEXD.SHRINK_MESH = edict()
 __C.STYLEXD.SHRINK_MESH.TRAIN = False
 __C.STYLEXD.SHRINK_MESH.VAL = False
-__C.STYLEXD.SHRINK_MESH.TEST = False
+__C.STYLEXD.SHRINK_MESH.INFERENCE = False
 __C.STYLEXD.SHRINK_MESH_PARAM = edict()
 __C.STYLEXD.SHRINK_MESH_PARAM.TRAIN = 0.
 __C.STYLEXD.SHRINK_MESH_PARAM.VAL = 0.
-__C.STYLEXD.SHRINK_MESH_PARAM.TEST = 0.
+__C.STYLEXD.SHRINK_MESH_PARAM.INFERENCE = 0.
 
 __C.STYLEXD.SHUFFLE_POINTS_AFTER_SAMPLE = False
 __C.STYLEXD.PCS_NOISE_TYPE = "default"
@@ -58,7 +58,7 @@ __C.STYLEXD.PCS_NOISE_TYPE = "default"
 __C.STYLEXD.PANEL_NOISE_TYPE = edict()
 __C.STYLEXD.PANEL_NOISE_TYPE.TRAIN = "default"
 __C.STYLEXD.PANEL_NOISE_TYPE.VAL = "default"
-__C.STYLEXD.PANEL_NOISE_TYPE.TEST = "default"
+__C.STYLEXD.PANEL_NOISE_TYPE.INFERENCE = "default"
 __C.STYLEXD.SCALE_RANGE = 0.04
 __C.STYLEXD.ROT_RANGE = 1.  # random rotation range for each part
 __C.STYLEXD.TRANS_RANGE = 1.  # random translation range for each part

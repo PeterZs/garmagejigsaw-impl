@@ -12,11 +12,11 @@ from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcl
 from utils.inference.save_result import save_result
 
 if __name__ == "__main__":
-    data_type = "StyleGen_256"
+    data_type = "Garmage_256"
     if not data_type in [
-        "StyleGen",
-        "StyleGen_multilayer",   # multi-layer of StyleGen data
-        "StyleGen_256",
+        "Garmage_64",
+        "Garmage_64_ML",   # multi-layer of Garmage data
+        "Garmage_256",
         "brep_reso_128",
         "brep_reso_256",
         "brep_reso_512",
@@ -31,15 +31,15 @@ if __name__ == "__main__":
     model = build_model(cfg).load_from_checkpoint(cfg.WEIGHT_FILE).cuda()
     # 一些超参数从cfg文件中获得，不用ckpt中的
     model.pc_cls_threshold = cfg.MODEL.PC_CLS_THRESHOLD
-    test_loader = build_stylexd_dataloader_inference(cfg)
+    inference_loader = build_stylexd_dataloader_inference(cfg)
 
-    for batch in tqdm(test_loader):
+    for batch in tqdm(inference_loader):
         batch = to_device(batch, model.device)
 
         inf_rst = model(batch)
 
         # 获取点点缝合关系 -------------------------------------------------------------------------------------------------
-        if data_type == "StyleGen":
+        if data_type == "Garmage_64":
             stitch_mat_full, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
                                 sym_choice="sym_max", mat_choice="col_max",
@@ -48,7 +48,7 @@ if __name__ == "__main__":
                                 filter_too_small=True, filter_logits=0.18,
                                 only_triu=True, filter_uncontinue=False,
                                 show_pc_cls=False, show_stitch=False, export_vis_result = False))
-        elif data_type == "StyleGen_multilayer":
+        elif data_type == "Garmage_64_ML":
             stitch_mat_full, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
                                 sym_choice="sym_max", mat_choice="col_max",
@@ -57,7 +57,7 @@ if __name__ == "__main__":
                                 filter_too_small=True, filter_logits=0.05,
                                 only_triu=True, filter_uncontinue=False,
                                 show_pc_cls=False, show_stitch=False, export_vis_result = False))
-        elif data_type == "StyleGen_256":
+        elif data_type == "Garmage_256":
             stitch_mat_full, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
                                 sym_choice="", mat_choice="col_max",
@@ -92,8 +92,10 @@ if __name__ == "__main__":
 
         # 保存结果 -------------------------------------------------------------------------------------------------------
         save_dir = "_tmp/inference_ps2es_output"
-        save_dir  = os.path.join(save_dir, data_type)
-        if data_type == "StyleGen_256": data_id = int(batch['mesh_file_path'][0].split("_")[-1])
+        data_dir_list = cfg["DATA"]["DATA_TYPES"]["INFERENCE"]
+        data_dir = "+".join(data_dir_list)
+        save_dir  = os.path.join(save_dir, data_dir)
+        if data_type == "Garmage_256": data_id = int(batch['mesh_file_path'][0].split("_")[-1])
         else: data_id=int(batch['data_id'])
         save_result(save_dir, data_id=data_id, garment_json=garment_json, fig=fig_comp)
         # input("Press ENTER to continue")

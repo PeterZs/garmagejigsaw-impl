@@ -59,11 +59,10 @@ CALLBACK:
 DATA:
   DATA_DIR: "data/stylexd_jigsaw"
   DATA_TYPES:
-    TEST: ["StyleGen"]  # mul-selections:["StyleGen", "StyleGenML", "Brep128", "Brep256", "Brep512", "Brep1024"]
+    INFERENCE: ["Garmage256_SL"]
 
   NUM_PC_POINTS: 1500
 
-  # [todo] 训练时改成True
   SHUFFLE: True  # 打乱dataset
 
   MAX_NUM_PART: 64
@@ -72,16 +71,16 @@ DATA:
   PCS_SAMPLE_TYPE:  # 在Panel上采样的方式
     TRAIN: stitch
     VAL: stitch
-    TEST: boundary_pcs
+    INFERENCE: boundary_pcs
 
   SHRINK_MESH:
     TRAIN: True
     VAL: True
-    TEST: False
+    INFERENCE: False
   SHRINK_MESH_PARAM:
     TRAIN: 0.8
     VAL: 0.8
-    TEST: 1
+    INFERENCE: 1
 
   PCS_NOISE_TYPE: default  # default  normal
   PCS_NOISE_STRENGTH: 0.0
@@ -92,7 +91,7 @@ DATA:
   PANEL_NOISE_TYPE:  # 在Panel上加噪声的类型
     TRAIN: default
     VAL: default
-    TEST: default
+    INFERENCE: default
   SCALE_RANGE: 0.07
   ROT_RANGE: 0.2
   TRANS_RANGE: 3

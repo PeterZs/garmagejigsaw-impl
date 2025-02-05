@@ -96,13 +96,6 @@ def cal_neigbor_points_param_dis(start_point, end_point, all_panel_info):
         ]
     return param_dis
 
-# # [todo] 如果无用，删掉
-# # 根据输入的global_param，找到所在的panel
-# def global_param2panel_id(global_param, all_panel_info):
-#     bins = torch.tensor([p["param_start"] for p in [all_panel_info[k] for k in all_panel_info]])
-#     index = torch.searchsorted(bins, torch.tensor([global_param]), right=True) - 1
-#     target_panel_id = list(all_panel_info.keys())[index]
-#     return target_panel_id
 
 # 根据输入的global_param + panel_info，找到这个global_param对应的（浮点数的）point_id，以及最近的俩 point
 def global_param2point_id(global_param, panel_info):
@@ -548,56 +541,9 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
     if len(stitch_points_list) > 0:
         all_stitch_points_list.append(stitch_points_list)
 
-
     # 将太短的全部过滤掉 ---------------------------------------------------------------------------------------------------
     all_stitch_points_list, _ = filter_too_short(all_stitch_points_list, fliter_len = fliter_len) # [modified]
 
-    # # （暂时没用了）消除歧义点 --------------------------------------------------------------------------------------------
-    # for s_idx, stitch_points_list in enumerate(all_stitch_points_list):
-    #     is_previous_matched = False
-    #     for sp_idx, st_point in enumerate(stitch_points_list):
-    #         is_current_matched = False
-    #         # 非歧义点不处理
-    #         if len(st_point[1]) == 1: continue
-    #         # 对于歧义点，找到用于对比的点的idx：compare_idx
-    #         # if sp_idx == 0:
-    #         if sp_idx==0:
-    #             compare_idx = sp_idx+1
-    #         elif is_previous_matched:
-    #             if sp_idx==len(stitch_points_list)-1:
-    #                 compare_idx = 0
-    #             else:
-    #                 compare_idx = sp_idx+1
-    #         else:
-    #             compare_idx = sp_idx-1
-    #
-    #         # 对目标点进行匹配
-    #         is_valid, p_idx = is_valid_stitch_point(st_point, stitch_points_list[compare_idx])
-    #
-    #         # 如果左点对比失败，且不是最后点
-    #         if not is_valid and compare_idx==sp_idx-1 and sp_idx!=len(stitch_points_list)-1:
-    #             # 对右点进行匹配
-    #             compare_idx = sp_idx - 1
-    #             is_valid, p_idx = is_valid_stitch_point(st_point, stitch_points_list[compare_idx])
-    #
-    #         # 如果歧义点找到了合理的邻近匹配
-    #         if is_valid:
-    #             st_point[1] = [st_point[1][p_idx]]
-    #             is_current_matched = True
-    #
-    #         # 没有邻近匹配
-    #         else:
-    #             # [todo] 可能有能改进的地方
-    #             if sp_idx == 0:
-    #                 st_point[1] = [st_point[1][1]]
-    #             elif sp_idx == len(stitch_points_list)-1:
-    #                 st_point[1] = [st_point[1][0]]
-    #             else:
-    #                 stitch_points_list.remove(st_point)
-    #
-    #         is_previous_matched = is_current_matched
-
-    pass
     # 将被缝合点由list换成dict ---------------------------------------------------------------------------------------------
     for s_idx, stitch_points_list in enumerate(all_stitch_points_list):
         for sp_idx, st_point in enumerate(stitch_points_list):

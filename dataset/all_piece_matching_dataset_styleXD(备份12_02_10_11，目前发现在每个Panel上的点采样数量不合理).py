@@ -1165,7 +1165,7 @@ def build_stylexd_dataloader_train_val(cfg):
     train_loader = DataLoader(
         dataset=train_set,
         batch_size=cfg.BATCH_SIZE,
-        shuffle=cfg.DATA.SHUFFLE,  # [todo] 真的开始训练之后改成True
+        shuffle=cfg.DATA.SHUFFLE,
         num_workers=cfg.NUM_WORKERS,
         pin_memory=True,
         drop_last=True,
