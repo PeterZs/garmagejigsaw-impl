@@ -2,7 +2,7 @@
 from .visualization import *
 
 from .noise import get_sphere_noise
-from .random_sample import LatinHypercubeSample, random_point_in_convex_hull
+from .random_sample import LatinHypercubeSample, balancedSample, random_point_in_convex_hull
 
 from .mesh_opt import cal_mean_edge_len, compute_adjacency_list
 from .stitch import stitch_indices2mat, stitch_mat2indices,stitch_indices_order, stitch_mat_order

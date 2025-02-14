@@ -35,7 +35,7 @@ def pointcloud_and_stitch_logits_visualize(vertices:np.array, stitches:np.array,
 
     if not export_data_config:
         point_size = 6
-        line_width = 30
+        line_width = 5
     else:
         point_size = 6
         line_width = 15

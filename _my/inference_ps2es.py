@@ -1,5 +1,5 @@
 # first inference point stitch，then obtain edge stitch
-
+import torch
 from tqdm import tqdm
 
 import os.path
@@ -60,10 +60,10 @@ if __name__ == "__main__":
         elif data_type == "Garmage256":
             stitch_mat_full, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
-                                sym_choice="", mat_choice="col_max",
+                                sym_choice="sym_max", mat_choice="col_max",
                                 filter_neighbor_stitch=True, filter_neighbor = 3,
-                                filter_too_long=True, filter_length=0.08,
-                                filter_too_small=True, filter_logits=0.2,
+                                filter_too_long=True, filter_length=0.12,
+                                filter_too_small=True, filter_logits=0.12,
                                 only_triu=True, filter_uncontinue=False,
                                 show_pc_cls=False, show_stitch=False, export_vis_result = False))
         elif data_type == "brep_reso_128":
@@ -100,3 +100,4 @@ if __name__ == "__main__":
         save_result(save_dir, data_id=data_id, garment_json=garment_json, fig=fig_comp)
         # input("Press ENTER to continue")
 
+        torch.cuda.empty_cache()

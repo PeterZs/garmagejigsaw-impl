@@ -2,6 +2,7 @@ import json
 import math
 import os
 import random
+from copy import copy
 from glob import glob
 
 
@@ -23,7 +24,7 @@ from scipy.ndimage import convolve1d
 
 from utils import get_sphere_noise, min_max_normalize, styleXD_normalize, get_pc_bbox, compute_adjacency_list
 from utils import meshes_visualize, stitch_visualize, pointcloud_visualize, pointcloud_and_stitch_visualize
-from utils import LatinHypercubeSample, random_point_in_convex_hull
+from utils import LatinHypercubeSample, balancedSample, random_point_in_convex_hull
 from utils import stitch_mat2indices, stitch_indices2mat, stitch_indices_order, stitch_mat_order, cal_mean_edge_len
 
 
@@ -52,6 +53,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             trans_range=1,
             rot_range=-1,
             scale_range=0,
+            bbox_noise_strength=15,
 
             overfit=10,
 
@@ -105,6 +107,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 beta_end=0.02,
                 clip_sample=False,
             )
+            self.bbox_noise_strength = bbox_noise_strength
         """
         stitch（only training）：根据缝合关系按比例采样
         boundary_mesh：在mesh的边缘点上采样
@@ -232,17 +235,17 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
     # random scale+move panel by add noise on panel bbox
     def _random_SM_byBbox(self, pc):
-        # [todo] 给BBOX随机加噪
         bbox_old = get_pc_bbox(pc, type="xyxy")
         bbox_old = torch.Tensor(np.concatenate(bbox_old), device="cpu").unsqueeze(0)
-        aug_ts = torch.randint(0, 15, (1,), device="cpu").long()
+
+        aug_ts = torch.randint(0, self.bbox_noise_strength, (1,), device="cpu").long()
+        # gen = torch.Generator(device="cpu")  # 创建一个新的随机生成器
+        # gen.manual_seed(torch.randint(0, 2 ** 32, (1,)).item())  # 重新设定随机种子
+        # aug_noise = torch.randn(bbox_old.shape, generator=gen, device="cpu")
         aug_noise = torch.randn(bbox_old.shape, device="cpu")
-        # aug_noise = torch.randn(surfPos.shape,device="cpu")
-        # surfPos = self.noise_scheduler.add_noise(surfPos, aug_noise, aug_ts)
         bbox_new = self.noise_scheduler.add_noise(bbox_old, aug_noise, aug_ts)
 
         pc_new = self.transform_pc(pc, bbox_old.squeeze(0), bbox_new.squeeze(0))
-
         return pc_new
 
     def _shuffle_pc(self, pc, pc_gt):
@@ -396,11 +399,12 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         # === 获取点点缝合关系的映射 ===
         stitch_map = np.zeros(shape=(len(vertices)), dtype=np.int32) - 1
         stitch_map[stitches[:, 0]] = stitches[:, 1]
-        stitch_map[stitches[:, 1]] = stitches[:, 0]
+        stitch_map[stitches[:, 1]] = stitches[:, 0] # [todo]
 
         # === 获取所有的两类点的idx ===
         # 所有具有缝合关系的点的index
-        stitched_vertices_idx = np.concatenate([stitches[:, 0], stitches[:, 1]], axis=0)
+        stitched_vertices_idx = np.concatenate([stitches[:, 0], stitches[:, 1]], axis=0) # [todo]
+        # stitched_vertices_idx = stitches[:, 0]
         # 所有不具有缝合关系的边界点的index
         unstitched_vertices_idx = boundary_points_idx[
             np.array([s not in stitched_vertices_idx for s in boundary_points_idx])]
@@ -428,10 +432,10 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         由于 min_expect 不能设的过大（会导致给太多的Panel预分配采样点），因此依旧可能有Panel采样点数量过少，因此还是需要 check 最多 max_check_times 次
         """
         min_expect = min_samplenum_prepanel * 4             # 采样点的期望值低于 min_expect 的会被预分配采样点数量
-        pre_arranged = int(min_samplenum_prepanel * 2.5)    # 预分配的采样点数量
+        pre_arranged = int(min_samplenum_prepanel * 3)      # 预分配的采样点数量
         assert pre_arranged * num_parts < num_points, "min_samplenum_prepanel too large may cause error"
         sample_num_arrangement[expect_sample_nums <= min_expect] = pre_arranged
-        sample_num_arrangement[expect_sample_nums <= min_expect] = int(pre_arranged/2)  # 其它的也得在这时分配一点，防止采样点数量太不平衡
+        sample_num_arrangement[expect_sample_nums > min_expect] = int(pre_arranged/2)  # 其它的也得在这时分配一点，防止采样点数量太不平衡
         # 提前分配的采样点
         arranged_num = np.sum(sample_num_arrangement)
 
@@ -490,12 +494,17 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         for check_time in range(max_check_times):
             # === 成对采样具有缝合关系的点 ===
             sample_list = []
+
             for part_idx in range(num_parts):
                 # 一个panel上的缝合点
                 part_points = stitched_list[part_idx]
                 # 采样结果加入list
+                # [todo] 可以迭代式地，让采样的分布更均匀
                 if sample_num_arrangement_stitched[part_idx]>0:
-                    sample_list.append(part_points[LatinHypercubeSample(len(part_points), sample_num_arrangement_stitched[part_idx])])
+                    # sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_stitched[part_idx])
+                    # [todo] 测试新的采样方式
+                    sample_result = balancedSample(len(part_points), sample_num_arrangement_stitched[part_idx], iteration=20)
+                    sample_list.append(part_points[sample_result])
             stitched_sample_idx = np.concatenate(sample_list)
             stitched_sample_idx = sorted(stitched_sample_idx)
             stitched_sample_idx_cor = stitch_map[stitched_sample_idx]
@@ -506,8 +515,12 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 # 一个panel上的缝合点
                 part_points = unstitched_list[part_idx]
                 # 采样结果加入list
+                # [todo] 可以迭代式地，让采样的分布更均匀
                 if sample_num_arrangement_unstitched[part_idx]>0:
-                    sample_list.append(part_points[LatinHypercubeSample(len(part_points), sample_num_arrangement_unstitched[part_idx])])
+                    # sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_unstitched[part_idx])
+                    # [todo] 测试新的采样方式
+                    sample_result = balancedSample(len(part_points), sample_num_arrangement_unstitched[part_idx], iteration=20)
+                    sample_list.append(part_points[sample_result])
 
             if len(sample_list) > 0:
                 unstitched_sample_idx = np.concatenate(sample_list)
@@ -606,15 +619,21 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             raise AssertionError("Pointcloud Sample Num Wrong.")
 
         pcs_dict = dict(
-            pcs=pcs,
-            piece_id=piece_id,
-            nps=np.array(nps),
-            mat_gt=mat_gt,
+            pcs=pcs,                    # 3D 边缘点云
+            pcs_idx=all_sample_idx,     # 每个点在原本的mesh中的idx
+            piece_id=piece_id,          # 每个点所属的panel】
+            nps=np.array(nps),          # 每个panel的点数
+            mat_gt=mat_gt,              # gt 点点缝合关系
             mean_edge_len=mean_edge_len,
             normalize_range=normalize_range,
         )
+        # 采样点的UV信息
         if full_uv_info is not None:
             pcs_dict["uv"] = uv_sampled
+        # 采样点的法线信息
+        normals = np.concatenate([np.array(mesh.vertex_normals) for mesh in meshes], axis=0)
+        sampled_normals = normals[all_sample_idx]
+        pcs_dict["normal"] = sampled_normals
         return pcs_dict
 
     # 在mesh的顶点上添加噪声(暂不使用)
@@ -830,7 +849,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             stitches = np.load(os.path.join(data_folder, "annotations", "stitch.npy"))
             # stitch_visualize(np.concatenate([np.array(mesh.vertices) for mesh in meshes], axis = 0), stitch)
             # [todo] 将来如果有空，试着从根本上解决这个问题
-            max_check_times = 8  # 最大重复采样次数
+            max_check_times = 10  # 最大重复采样次数
             min_samplenum_prepanel = 4  # 单个Panel上的最少采样点数量
             sample_result = self.sample_point_byStitch(meshes, self.num_points, stitches, full_uv_info, n_rings=2,
                                                        max_check_times=max_check_times, min_samplenum_prepanel=min_samplenum_prepanel)
@@ -864,6 +883,9 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             uv = sample_result["uv"]
             uv = styleXD_normalize(uv)[0]
         else: uv=None
+        if "normal" in sample_result.keys():
+            # [todo]
+            normal = sample_result["normal"]
 
         # pointcloud_visualize(np.concatenate(pcs), colormap="tab10", colornum=2)
         num_parts = len(pcs)
@@ -921,6 +943,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
             pc_gt = pc.copy()
             if self.panel_noise_type == "default":
+                # [todo] 默认的panel noise方法需要考虑到normal
                 pc, gt_trans, gt_quat = self._random_SRM_default(pc, pcs, idx, mean_edge_len)
             elif self.panel_noise_type == "bbox":
                 pc = self._random_SM_byBbox(pc)
@@ -972,52 +995,57 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             pass
             # === 在位置变化后，加一次缝合噪声 ===
             if self.use_stitch_noise:
-                def smooth_using_convolution(noise, k=[1,1,1]):
+                def smooth_using_convolution(noise, k=3):
+                    k = [1] * k
                     kernel = np.array(k) / sum(k)  # 平滑卷积核
                     smoothed_noise = convolve1d(noise, kernel, axis=0, mode='nearest')
                     return smoothed_noise
 
                 # 随机噪声强度
-                rand_param = random.random()
+                rand_param = random.random()*0.8+0.2
                 stitch_noise_strength_base = (self.stitch_noise_random_min * rand_param +
                                               self.stitch_noise_random_max * (1-rand_param))
                 stitch_noise_strength_base *= self.stitch_noise_strength
 
                 # === 对缝合点 按缝合线加远离噪声 ===
                 stitch_noise_strength1 = stitch_noise_strength_base
-                vec =  cur_pcs[mat_gt[:, 1]] - cur_pcs[mat_gt[:,0]]
-                vec2 = cur_pcs[mat_gt[:, 0]] - cur_pcs[mat_gt[:, 1]]
+                vec =  copy(cur_pcs[mat_gt[:, 1]] - cur_pcs[mat_gt[:,0]])
+                vec2 = copy(cur_pcs[mat_gt[:, 0]] - cur_pcs[mat_gt[:, 1]])
                 # 是每一对缝合点之间的向量
                 vec = vec/(np.linalg.norm(vec, axis=1, keepdims=True) + 1e-12)
                 vec2 = vec2/(np.linalg.norm(vec2, axis=1, keepdims=True) + 1e-12)
 
-                # vec = smooth_using_convolution(vec, [1,1,1,1,1])
-
                 # 在缝合的两边加的噪声
-                noise1 = (vec * np.random.rand(len(mat_gt), 1)*0.9+0.1) * stitch_noise_strength1 * mean_edge_len
-                noise2 = (vec2 * np.random.rand(len(mat_gt), 1)*0.9+0.1) * stitch_noise_strength1 * mean_edge_len
+                stitch_noise1_strength_per_point1 = np.random.rand(len(mat_gt), 1) * 0.9 + 0.1
+                # for i in range(1): stitch_noise1_strength_per_point1 = smooth_using_convolution(stitch_noise1_strength_per_point1, k=3)
+                stitch_noise2_strength_per_point2 = np.random.rand(len(mat_gt), 1) * 0.9 + 0.1
+                # for i in range(1): stitch_noise2_strength_per_point2 = smooth_using_convolution(stitch_noise2_strength_per_point2, k=3)
+                noise1 = vec * stitch_noise1_strength_per_point1 * stitch_noise_strength1 * mean_edge_len
+                noise2 = vec2 * stitch_noise2_strength_per_point2 * stitch_noise_strength1 * mean_edge_len
                 # cur_pcs的shape为Mx3，是所有点的位置
-                # noise1 = smooth_using_convolution(noise1)
-                # noise2 = smooth_using_convolution(noise2)
+                # noise1 = smooth_using_convolution(noise1, k=7)
+                # noise2 = smooth_using_convolution(noise2, k=7)
                 cur_pcs[mat_gt[:, 1]] += noise1
                 cur_pcs[mat_gt[:, 0]] += noise2
 
-                # # === 对不缝合的点加随机噪声 ===
-                # stitch_noise_strength3 = stitch_noise_strength_base * (random.random()*0.4+0.2)
-                # unstitch_mask = np.zeros(cur_pcs.shape[0])
-                # unstitch_mask[mat_gt[:, 0]] = 1
-                # unstitch_mask[mat_gt[:, 1]] = 1
-                # unstitch_mask = unstitch_mask == 0
-                # noise3 = (np.random.rand(np.sum(unstitch_mask), 3)*2.-1.)
-                # noise3 = noise3 / (np.linalg.norm(noise3, axis=1, keepdims=True) + 1e-6)
-                # noise3 = noise3 * stitch_noise_strength3 * mean_edge_len
-                # cur_pcs[unstitch_mask] += noise3
+                # === 对不缝合的点加随机噪声 ===
+                stitch_noise_strength3 = stitch_noise_strength_base * (random.random()*1.0+0.5)
+                unstitch_mask = np.zeros(cur_pcs.shape[0])
+                unstitch_mask[mat_gt[:, 0]] = 1
+                unstitch_mask[mat_gt[:, 1]] = 1
+                unstitch_mask = unstitch_mask == 0
+                noise3 = (np.random.rand(np.sum(unstitch_mask), 3)*2.-1.)
+                for _ in range(1): noise3 = smooth_using_convolution(noise3, k=3)
+                noise3 = noise3 / (np.linalg.norm(noise3, axis=1, keepdims=True) + 1e-6)
+                noise3 = noise3 * stitch_noise_strength3 * mean_edge_len
+                cur_pcs[unstitch_mask] += noise3
 
                 # === 对缝合的点的两端加相同噪声（只加一点点） ===
-                stitch_noise_strength4 = stitch_noise_strength_base * (random.random()*0.3+0.15)
+                stitch_noise_strength4 = stitch_noise_strength_base * (random.random()*0.2+0.1)
                 noise4 = (np.random.rand(len(mat_gt), 3)*2.-1.)
                 noise4 = noise4 / (np.linalg.norm(noise4, axis=1, keepdims=True) + 1e-6)
                 noise4 = noise4 * stitch_noise_strength4 * mean_edge_len
+                # for _ in range(3): noise4 = smooth_using_convolution(noise4)
                 cur_pcs[mat_gt[:, 0]] += noise4
                 cur_pcs[mat_gt[:, 1]] += noise4
 
@@ -1027,6 +1055,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 # noise5 = noise5 / (np.linalg.norm(noise5, axis=1, keepdims=True) + 1e-6)
                 # noise5 = noise5 * stitch_noise_strength * mean_edge_len * 0.2
                 # cur_pcs[stitch_mask] += noise5
+
             # pointcloud_visualize(cur_pcs)
             # pointcloud_visualize([cur_pcs[piece_id==i] for i in range(len(pcs))])
             # pointcloud_and_stitch_visualize(cur_pcs, mat_gt)
@@ -1034,8 +1063,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             # GT 缝合关系
             mat_gt = stitch_indices2mat(self.num_points, mat_gt)
             data_dict["mat_gt"] = mat_gt
-
-            # pointcloud_and_stitch_visualize(cur_pcs,mat_gt)
 
             # 平均缝合长度
             Dis = np.sqrt(np.sum(((cur_pcs[:,None,:] - cur_pcs[None,:,:])**2), axis=-1))
@@ -1067,12 +1094,12 @@ def build_stylexd_dataloader_train_val(cfg):
         pcs_sample_type=cfg.DATA.PCS_SAMPLE_TYPE.TRAIN,
         pcs_noise_type=cfg.DATA.PCS_NOISE_TYPE,
         pcs_noise_strength=cfg.DATA.PCS_NOISE_STRENGTH,
-        panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.TRAIN,
 
+        panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.TRAIN,
         scale_range=cfg.DATA.SCALE_RANGE,
         rot_range=cfg.DATA.ROT_RANGE,
         trans_range=cfg.DATA.TRANS_RANGE,
-
+        bbox_noise_strength=cfg.DATA.BBOX_NOISE_STRENGTH,
         overfit=cfg.DATA.OVERFIT,
         min_part_point=cfg.DATA.MIN_PART_POINT,
 
@@ -1168,11 +1195,12 @@ def build_stylexd_dataloader_inference(cfg):
         pcs_sample_type=cfg.DATA.PCS_SAMPLE_TYPE.INFERENCE,
         pcs_noise_type=cfg.DATA.PCS_NOISE_TYPE,
         pcs_noise_strength=cfg.DATA.PCS_NOISE_STRENGTH,
-        panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.INFERENCE,
 
+        panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.INFERENCE,
         scale_range=cfg.DATA.SCALE_RANGE,
         rot_range=cfg.DATA.ROT_RANGE,
         trans_range=cfg.DATA.TRANS_RANGE,
+        bbox_noise_strength=cfg.DATA.BBOX_NOISE_STRENGTH,
 
         overfit=cfg.DATA.OVERFIT,
         min_part_point=cfg.DATA.MIN_PART_POINT,

@@ -69,7 +69,7 @@ if __name__ == "__main__":
         pcs = batch["pcs"].squeeze(0)
         pc_cls_mask = inf_rst["pc_cls_mask"].squeeze(0)
         stitch_pcs = pcs[pc_cls_mask == 1]
-        mat_gt = batch["mat_gt"].squeeze(0)
+        mat_gt = batch["mat_gt"]
         stitch_indices_gt = stitch_mat2indices(mat_gt)
         pointcloud_and_stitch_visualize(pcs, stitch_indices_gt, title="ground-true stitch")
         print(f"s/p={len(stitch_indices_gt) / point_num}")
@@ -85,7 +85,7 @@ if __name__ == "__main__":
         pc_stitch_mask = torch.sum(stitch_mat_pred * stitch_mat, dim=-1) < pc_stitch_threshold
         pc_stitch_mask = pc_stitch_mask.squeeze(0)
         stitch_mat[0][pc_stitch_mask] = 0
-        stitch_indices = stitch_mat2indices(np.array(stitch_mat[0, :, :-1].detach().cpu()))
+        stitch_indices = stitch_mat2indices(np.array(stitch_mat[0, :, :].detach().cpu()))
 
         logits = np.zeros(stitch_indices.shape[0])
         logits_ = torch.sum(stitch_mat_pred * stitch_mat, dim=-1)  # 缝合置信度

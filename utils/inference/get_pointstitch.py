@@ -76,9 +76,9 @@ def get_pointstitch(batch, inf_rst,
 
     # 去除明显太长的错误结果 ====================================
     if filter_too_long:
-        pass
-        # [todo] 这里可以直接将这些缝合的概率降低
-        # [降低一个缝合的置信度时可以同时参考缝合长度和置信度]
+        dist_mat = torch.cdist(stitch_pcs, stitch_pcs)
+        filter_mask = dist_mat > filter_length
+        stitch_mat_pred[0][filter_mask] *= 0.2
 
     # 两种办法：1，简单取行最大值；2，匈牙利 =======================
     if mat_choice == "col_max":  # 简单取行最大值
