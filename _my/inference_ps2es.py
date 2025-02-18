@@ -7,7 +7,7 @@ import os.path
 from model import build_model
 from dataset import build_stylexd_dataloader_inference
 
-from utils import  to_device, get_pointstitch, pointstitch_2_edgestitch
+from utils import  to_device, get_pointstitch, pointstitch_2_edgestitch, pointstitch_2_edgestitch2
 from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcloud_and_stitch_logits_visualize, composite_visualize
 from utils.inference.save_result import save_result
 
@@ -80,7 +80,7 @@ if __name__ == "__main__":
         # optimized_stitch_indices = optimize_pointstitch(batch, inf_rst, stitch_mat_full, stitch_indices_full, show_stitch = True)
 
         # 从点点缝合关系获取边边缝合关系 -------------------------------------------------------------------------------------
-        edgestitch_results = pointstitch_2_edgestitch(batch, inf_rst,
+        edgestitch_results = pointstitch_2_edgestitch2(batch, inf_rst,
                                                 stitch_mat_full, stitch_indices_full,
                                                 unstitch_thresh=5, fliter_len=2,
                                                 param_dis_optimize_thresh=0.9)

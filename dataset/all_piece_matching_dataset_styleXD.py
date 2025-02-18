@@ -971,8 +971,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             "pcs": cur_pcs,                             # pointclouds after random transformation
             "pcs_gt": cur_pcs_gt,                       # pointclouds before random transformation
             "n_pcs": n_pcs,                             # point num of each part
-            # "part_quat": cur_quat,                    # [todo] jigsaw项目遗留，似乎无用
-            # "part_trans": cur_trans,
             "num_parts": num_parts,
             "part_valids": valids,
             "data_id": index,

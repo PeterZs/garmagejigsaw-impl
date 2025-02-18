@@ -197,7 +197,7 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
         garment_json = json.load(gf)
         annotations_json = json.load(af)
 
-    panel_nes = np.array(annotations_json["panel_nes"], dtype=np.int64)
+    contour_nes = np.array(annotations_json["contour_nes"], dtype=np.int64)
     edge_approx = np.array(annotations_json["edge_approx"], dtype=np.int64)
 
 
@@ -205,7 +205,7 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
     panel_num = np.sum(n_pcs!=0)
     n_pcs = n_pcs[:panel_num]
     n_pcs_cumsum = np.cumsum(n_pcs, axis=-1)
-    panel_nes_cumsum = np.cumsum(panel_nes, axis=-1)
+    panel_nes_cumsum = np.cumsum(contour_nes, axis=-1)
     edge_approx_global = deepcopy(edge_approx)
     for panel_idx in range(len(n_pcs_cumsum)):
         if panel_idx == 0: edge_start_idx = 0
