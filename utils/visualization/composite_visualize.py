@@ -1,6 +1,7 @@
 # 新增功能：composite_visualize 在一个页面中显示多个内容，并能够保存为html文件
 import math
 import os
+from glob import glob
 import pickle
 import json
 from copy import deepcopy
@@ -14,7 +15,6 @@ from matplotlib import pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-
 
 
 def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
@@ -125,11 +125,19 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
         ), row=1, col=3)
 
     # === Geometry Image ===
-    geo_fp = os.path.join(batch["mesh_file_path"][0], "original_data", "xyz.pkl")
-    mask_fp = os.path.join(batch["mesh_file_path"][0], "original_data", "mask.pkl")
-    with open(geo_fp, 'rb') as geo_f, open(mask_fp, 'rb') as mask_f:
-        geo = pickle.load(geo_f).transpose(0,3,1,2)
-        mask = pickle.load(mask_f).transpose(0,3,1,2)
+    with open(glob(os.path.join(batch["mesh_file_path"][0], "original_data","*.pkl"))[0], 'rb') as f:
+        orig_data = pickle.load(f, fix_imports=True)
+        if orig_data["surf_mask"].ndim != 4:
+            orig_data["surf_mask"] = orig_data["surf_mask"].reshape(-1,256,256,1)
+        if orig_data["surf_ncs"].ndim != 4:
+            orig_data["surf_ncs"] = orig_data["surf_ncs"].reshape(-1,256,256,3)
+        mask = (orig_data["surf_mask"]>0).transpose(0,3,1,2)
+        geo = orig_data["surf_ncs"].transpose(0,3,1,2)
+    # geo_fp = os.path.join(batch["mesh_file_path"][0], "original_data", "xyz.pkl")
+    # mask_fp = os.path.join(batch["mesh_file_path"][0], "original_data", "mask.pkl")
+    # with open(geo_fp, 'rb') as geo_f, open(mask_fp, 'rb') as mask_f:
+    #     geo = pickle.load(geo_f).transpose(0,3,1,2)
+    #     mask = pickle.load(mask_f).transpose(0,3,1,2)
 
     geo = (geo+1.)*0.5
     geo[~np.repeat(mask, 3, axis=1)] = 1
@@ -137,7 +145,8 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
                           nrow=math.ceil(math.sqrt(num_parts)), ncol=math.ceil(math.sqrt(num_parts)), padding=5, pad_value=1.,normalize=False, value_range=(-1,1))
     grid_imgs = grid_imgs.permute(1, 2, 0).cpu().numpy()
     grid_imgs = np.concatenate([grid_imgs[:, :, :3], np.repeat(grid_imgs[:, :, -1:], 3, axis=-1)], axis=0)
-    fig.add_trace(px.imshow(grid_imgs).data[0], row=2, col=1)
+    grid_imgs_uint8 = (grid_imgs * 255).astype(np.uint8)
+    fig.add_trace(px.imshow(grid_imgs_uint8).data[0], row=2, col=1)
 
     # === Original UV ===
     for part_idx in range(num_parts):

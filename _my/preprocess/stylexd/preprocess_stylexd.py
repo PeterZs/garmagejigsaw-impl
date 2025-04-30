@@ -15,10 +15,10 @@ if __name__ == "__main__":
     # file_list = glob(os.path.join(stylexd_dir,"*.obj"))
     START_IDX = 11077
 
-    stylexd_dir = "/home/Ex1/Download/Termius"
+    stylexd_dir = "/home/Ex1/Datasets/S3D/objs_with_stitch/Q4"
     # out_dir = "/home/Ex1/Datasets/S3D/StyleXD/preprocessed_jigsaw_train"
     out_dir = "data/stylexd_jigsaw/additional_data"
-    file_list = glob(os.path.join(stylexd_dir,"Q*","**","*.obj"), recursive=True)
+    file_list = glob(os.path.join(stylexd_dir,"**","*.obj"), recursive=True)
     for idx, file_path in tqdm(list(enumerate(file_list))):
         garment_idx = idx + START_IDX
 

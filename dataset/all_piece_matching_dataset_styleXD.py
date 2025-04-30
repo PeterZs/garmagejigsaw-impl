@@ -75,14 +75,14 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         self.data_dir = data_dir
         self.data_types = data_types
 
-        self.data_list = self._read_data()
-        # self.data_list = self.data_list[::200]
-
         try:
             with open(os.path.join(data_dir,self.mode,"data_info.json"), "r", encoding="utf-8") as f:
                 self.data_info = json.load(f)
         except:
             self.data_info = None
+
+        self.data_list = self._read_data()
+        # self.data_list = self.data_list[::200]
 
         self.category = category if category.lower() != "all" else ""
 
@@ -338,7 +338,12 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         piece_id = np.concatenate([[idx]*len(pcs[idx]) for idx in range(len(pcs))], axis=0)
         # pcs_normalized, normalize_range = styleXD_normalize(np.concatenate(pcs))
         # pcs_normalized, normalize_range = np.concatenate(pcs), 1.
-        pcs_normalized, normalize_range = min_max_normalize(np.concatenate(pcs))
+
+        # pcs_normalized, normalize_range = min_max_normalize(np.concatenate(pcs))
+        # [TODO] 有些情况下，加min_max_normalize效果会更好一些
+        pcs_normalized = np.concatenate(pcs)
+        normalize_range = 1
+
         pcs = [pcs_normalized[piece_id==panel_idx] for panel_idx in range(num_parts)]
         nps = np.array([len(pc) for pc in pcs])
         mean_edge_len = 0.0072/normalize_range

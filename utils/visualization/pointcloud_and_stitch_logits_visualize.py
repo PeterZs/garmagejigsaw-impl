@@ -37,8 +37,8 @@ def pointcloud_and_stitch_logits_visualize(vertices:np.array, stitches:np.array,
         point_size = 6
         line_width = 5
     else:
-        point_size = 3
-        line_width = 11
+        point_size = 5
+        line_width = 13
 
 
     # 场景
@@ -73,7 +73,7 @@ def pointcloud_and_stitch_logits_visualize(vertices:np.array, stitches:np.array,
             marker=dict(
                 size=point_size,
                 color=color,
-                opacity=1
+                opacity=0.65
             ),
             showlegend=False
         ))

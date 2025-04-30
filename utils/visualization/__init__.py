@@ -7,8 +7,9 @@ from .pointcloud_and_edge_visualize import pointcloud_and_edge_visualize
 from .export_config import get_export_config
 from .composite_visualize import composite_visualize
 from .geoimg_visualize import geoimg_visualize
+from .draw_bbox_geometry import draw_bbox_geometry
 
 __all__ = ["meshes_visualize", "stitch_visualize", "pointcloud_visualize",
            "pointcloud_and_stitch_visualize", "pointcloud_and_stitch_logits_visualize", "pointcloud_and_edge_visualize",
-           "get_export_config", "composite_visualize", "geoimg_visualize"]
+           "get_export_config", "composite_visualize", "geoimg_visualize", "draw_bbox_geometry"]
 

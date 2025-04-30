@@ -136,13 +136,11 @@ if __name__ == "__main__":
                             only_triu=False, filter_uncontinue=False,
                             show_pc_cls=False, show_stitch=False, export_vis_result=False))
 
-
         mat_gt = mat_gt==1
         pcs = batch["pcs"].squeeze(0)
         piece_id = batch["piece_id"][0]
         mat_gt = mat_gt + mat_gt.transpose(-1, -2)
         stitch_mat_full = stitch_mat_full>=0.9
-
 
         # === 缝合Recall ===
         RECALL_STITCH = torch.sum(torch.bitwise_and(stitch_mat_full==mat_gt, mat_gt))/torch.sum(mat_gt)
@@ -177,7 +175,6 @@ if __name__ == "__main__":
         normalize_range = batch['normalize_range'].squeeze(0)
         STITCH_AMD = torch.sum(torch.norm(stitch_cor_position_pred - stitch_cor_position_gt, dim=1)) / len(stitch_point_idx_valid)
         STITCH_AMD *= normalize_range
-
 
         # === 计算点缝合拓扑准确性 ===
         timeout = 10
@@ -254,5 +251,4 @@ if __name__ == "__main__":
               f"TOPOLOGHY_F1_ES: {out_dict['TOPOLOGHY_F1_ES']}\n"
               f"TOPOLOGHY_GED_ES: {out_dict['TOPOLOGHY_GED_ES']}\n"
               )
-
         torch.cuda.empty_cache()

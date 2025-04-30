@@ -84,7 +84,7 @@ if __name__ == "__main__":
         garment_idx = int(garments_dir.split("_")[-1])
         if 0 <= garment_idx < 890: Q1_num += 1
         if 890 <= garment_idx < 11077: Q2_num += 1
-        if 11077 <= garment_idx < 12275: Q4_num += 1
+        if 11077 <= garment_idx: Q4_num += 1
 
     split = [8, 1, 1]
     garment_num = len(filtered_garments_dir)

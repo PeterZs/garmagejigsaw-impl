@@ -142,3 +142,11 @@ def merge_c2p_byPanelIns(batch):
             batch["panel_instance_seg"][B][i] = i
 
     return batch
+
+def _denormalize_pts(pts, bbox):
+    pos_dim =  pts.shape[-1]
+    bbox_min = bbox[..., :pos_dim][:, None, ...]
+    bbox_max = bbox[..., pos_dim:][:, None, ...]
+    bbox_scale = np.max(bbox_max - bbox_min, axis=-1, keepdims=True) * 0.5
+    bbox_offset = (bbox_max + bbox_min) / 2.0
+    return pts * bbox_scale + bbox_offset
