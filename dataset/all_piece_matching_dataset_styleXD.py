@@ -67,6 +67,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
             min_part_point=30,
             mode= "train",
+            dataset_split_dir = "data/stylexd_jigsaw/dataset_split"
     ):
         if mode not in ["train", "val", "test", "inference"]:
             raise ValueError(f"mode=\"{mode}\" is not valid.")
@@ -81,6 +82,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         except:
             self.data_info = None
 
+        self.dataset_split_dir = dataset_split_dir
         self.data_list = self._read_data()
         # self.data_list = self.data_list[::200]
 
@@ -147,7 +149,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
     def _read_data(self):
         if self.mode in ["train", "val", "test"]:
-            with open(os.path.join(self.data_dir, "dataset_split", f"{self.mode}.json") ,"r", encoding="utf-8") as f:
+            with open(os.path.join(self.dataset_split_dir, f"{self.mode}.json") ,"r", encoding="utf-8") as f:
                 split = json.load(f)
             mesh_dir = os.path.join(self.data_dir, self.mode)
             data_list = [os.path.join(mesh_dir, dir_) for dir_ in split]
@@ -238,14 +240,17 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         bbox_old = get_pc_bbox(pc, type="xyxy")
         bbox_old = torch.Tensor(np.concatenate(bbox_old), device="cpu").unsqueeze(0)
 
-        aug_ts = torch.randint(0, self.bbox_noise_strength, (1,), device="cpu").long()
-        # gen = torch.Generator(device="cpu")  # 创建一个新的随机生成器
-        # gen.manual_seed(torch.randint(0, 2 ** 32, (1,)).item())  # 重新设定随机种子
-        # aug_noise = torch.randn(bbox_old.shape, generator=gen, device="cpu")
-        aug_noise = torch.randn(bbox_old.shape, device="cpu")
-        bbox_new = self.noise_scheduler.add_noise(bbox_old, aug_noise, aug_ts)
+        if self.bbox_noise_strength>0:
+            aug_ts = torch.randint(0, self.bbox_noise_strength, (1,), device="cpu").long()
+            # gen = torch.Generator(device="cpu")  # 创建一个新的随机生成器
+            # gen.manual_seed(torch.randint(0, 2 ** 32, (1,)).item())  # 重新设定随机种子
+            # aug_noise = torch.randn(bbox_old.shape, generator=gen, device="cpu")
+            aug_noise = torch.randn(bbox_old.shape, device="cpu")
+            bbox_new = self.noise_scheduler.add_noise(bbox_old, aug_noise, aug_ts)
 
-        pc_new = self.transform_pc(pc, bbox_old.squeeze(0), bbox_new.squeeze(0))
+            pc_new = self.transform_pc(pc, bbox_old.squeeze(0), bbox_new.squeeze(0))
+        else:
+            pc_new = pc
         return pc_new
 
     def _shuffle_pc(self, pc, pc_gt):
@@ -258,7 +263,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
     def _pad_data(self, data, pad_size=None, pad_num=0):
         """Pad data to shape [`self.max_num_part`, data.shape[1], ...]."""
-        # [todo] 改成可以pad任意数字，但默认pad 0
 
         if pad_size is None:
             pad_size = self.max_num_part
@@ -501,8 +505,8 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 # 采样结果加入list
                 # [todo] 可以迭代式地，让采样的分布更均匀
                 if sample_num_arrangement_stitched[part_idx]>0:
-                    # sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_stitched[part_idx])
-                    sample_result = balancedSample(len(part_points), sample_num_arrangement_stitched[part_idx], iteration=20)
+                    sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_stitched[part_idx])
+                    # sample_result = balancedSample(len(part_points), sample_num_arrangement_stitched[part_idx], iteration=20)
                     sample_list.append(part_points[sample_result])
             stitched_sample_idx = np.concatenate(sample_list)
             stitched_sample_idx = sorted(stitched_sample_idx)
@@ -516,8 +520,8 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 # 采样结果加入list
                 # [todo] 可以迭代式地，让采样的分布更均匀
                 if sample_num_arrangement_unstitched[part_idx]>0:
-                    # sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_unstitched[part_idx])
-                    sample_result = balancedSample(len(part_points), sample_num_arrangement_unstitched[part_idx], iteration=20)
+                    sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_unstitched[part_idx])
+                    # sample_result = balancedSample(len(part_points), sample_num_arrangement_unstitched[part_idx], iteration=20)
                     sample_list.append(part_points[sample_result])
 
             if len(sample_list) > 0:
@@ -863,8 +867,9 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             uv = styleXD_normalize(uv)[0]
         else: uv=None
         if "normal" in sample_result.keys():
-            # [todo]
+            # [todo] 添加normal的处理
             normal = sample_result["normal"]
+            # raise NotImplementedError()
 
         # pointcloud_visualize(np.concatenate(pcs), colormap="tab10", colornum=2)
         num_parts = len(pcs)
@@ -905,7 +910,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         valids = np.zeros(self.max_num_part, dtype=np.float32)
         valids[:num_parts] = 1.0
         panel_instance_seg = self._pad_data(np.array(panel_instance_seg), self.max_num_part, -1).astype(np.int64)
-        # [todo]panel_instance_seg传出去后，在提取特征时，添加一步用于将属于同一panel实例的点云合并到一起去
         data_dict = {
             "pcs": cur_pcs,                             # pointclouds after random transformation
             # "pcs_gt": cur_pcs_gt,                       # pointclouds before random transformation
@@ -949,7 +953,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 stitch_noise_strength1 = stitch_noise_strength_base
                 vec =  copy(cur_pcs[mat_gt[:, 1]] - cur_pcs[mat_gt[:,0]])
                 vec2 = copy(cur_pcs[mat_gt[:, 0]] - cur_pcs[mat_gt[:, 1]])
-                # 是每一对缝合点之间的向量
+                # 每一对缝合点之间的向量
                 vec = vec/(np.linalg.norm(vec, axis=1, keepdims=True) + 1e-12)
                 vec2 = vec2/(np.linalg.norm(vec2, axis=1, keepdims=True) + 1e-12)
 
@@ -967,7 +971,11 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 cur_pcs[mat_gt[:, 0]] += noise2
 
                 # === 对不缝合的点加随机噪声 ===
-                stitch_noise_strength3 = stitch_noise_strength_base * (random.random()*1.0+0.5)
+                """
+                2025_05:
+                stitch_noise_strength3 = stitch_noise_strength_base * (random.random()*1+0.5)
+                """
+                stitch_noise_strength3 = stitch_noise_strength_base * (random.random()*0.1+0.1)
                 unstitch_mask = np.zeros(cur_pcs.shape[0])
                 unstitch_mask[mat_gt[:, 0]] = 1
                 unstitch_mask[mat_gt[:, 1]] = 1
@@ -978,14 +986,14 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 noise3 = noise3 * stitch_noise_strength3 * mean_edge_len
                 cur_pcs[unstitch_mask] += noise3
 
-                # === 对缝合的点的两端加相同噪声（只加一点点） ===
-                stitch_noise_strength4 = stitch_noise_strength_base * (random.random()*0.2+0.1)
-                noise4 = (np.random.rand(len(mat_gt), 3)*2.-1.)
-                noise4 = noise4 / (np.linalg.norm(noise4, axis=1, keepdims=True) + 1e-6)
-                noise4 = noise4 * stitch_noise_strength4 * mean_edge_len
-                # for _ in range(3): noise4 = smooth_using_convolution(noise4)
-                cur_pcs[mat_gt[:, 0]] += noise4
-                cur_pcs[mat_gt[:, 1]] += noise4
+                # # === 对缝合的点的两端加相同噪声（只加一点点） ===
+                # stitch_noise_strength4 = stitch_noise_strength_base * (random.random()*0.2+0.1)
+                # noise4 = (np.random.rand(len(mat_gt), 3)*2.-1.)
+                # noise4 = noise4 / (np.linalg.norm(noise4, axis=1, keepdims=True) + 1e-6)
+                # noise4 = noise4 * stitch_noise_strength4 * mean_edge_len
+                # # for _ in range(3): noise4 = smooth_using_convolution(noise4)
+                # cur_pcs[mat_gt[:, 0]] += noise4
+                # cur_pcs[mat_gt[:, 1]] += noise4
 
                 # # === 对缝合的点再加点噪声（只加一点点） ===
                 # stitch_mask = ~unstitch_mask
@@ -1042,6 +1050,8 @@ def build_stylexd_dataloader_train_val(cfg):
         min_part_point=cfg.DATA.MIN_PART_POINT,
 
         read_uv=cfg.MODEL.USE_UV_FEATURE,
+
+        dataset_split_dir=cfg.DATA.DATASET_SPLIT_DIR,
     )
     train_set = AllPieceMatchingDataset_stylexd(**data_dict)
     train_loader = DataLoader(
@@ -1143,7 +1153,9 @@ def build_stylexd_dataloader_inference(cfg):
         overfit=cfg.DATA.OVERFIT,
         min_part_point=cfg.DATA.MIN_PART_POINT,
 
-        read_uv = True
+        read_uv = True,
+
+        dataset_split_dir=cfg.DATA.DATASET_SPLIT_DIR,
     )
     inference_mode_set = AllPieceMatchingDataset_stylexd(**data_dict)
     inference_loader = DataLoader(
