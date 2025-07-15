@@ -34,9 +34,25 @@ MODEL:
   USE_LOCAL_UV_FEATURE: True       # 是否提取UV的全局特征
   USE_GLOBAL_UV_FEATURE: False     # 是否提取UV的全局特征
 
+  FEATURE_CONV:
+    USE_FEATURE_CONV: False
+    TYPE: "default"
+    LAYER_NUM: 1
+    KERNEL_SIZE: 3
+    DILATION: 1
+
+  FEATURE_CONV_2:
+    USE_FEATURE_CONV: False
+    TYPE: "default"
+    LAYER_NUM: 1
+    KERNEL_SIZE: 3
+    DILATION: 1
+
   TF_LAYER_NUM: 1  # PT层的数量
   PC_CLS_THRESHOLD: 0.0
   LOSS:
+    MAT_LOSS_TYPE: "global"  # "local" OR "global"
+    MAT_LOSS_SYM: True       # 是否强制让用于计算损失的 gt stitching mat 是斜对称的
     w_cls_loss: 0.0
     w_mat_loss: 0.0
 

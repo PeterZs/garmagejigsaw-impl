@@ -156,6 +156,8 @@ def _merge_a_into_b(a, b):
         if type(b[k]) is not type(v):
             if type(b[k]) is float and type(v) is int:
                 v = float(v)
+            # elif type(b[k]) is list:
+            #     v = [v]
             else:
                 if k not in ["CLASS"]:
                     raise ValueError(

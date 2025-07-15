@@ -37,6 +37,20 @@ __C.STYLEXD.TF_NUM_HEADS = 8
 __C.STYLEXD.TF_NUM_SAMPLE = 16
 __C.STYLEXD.USE_TF_BLOCK = False  # 是否使用 PointTransformer Block 来将每个 PointTransformer 进行分别封装
 
+__C.STYLEXD.FEATURE_CONV = edict()
+__C.STYLEXD.FEATURE_CONV.USE_FEATURE_CONV = False
+__C.STYLEXD.FEATURE_CONV.TYPE = "default"               # 默认版本，与HOLA中保持一致
+__C.STYLEXD.FEATURE_CONV.LAYER_NUM = 1
+__C.STYLEXD.FEATURE_CONV.KERNEL_SIZE = 3
+__C.STYLEXD.FEATURE_CONV.DILATION = 1
+
+__C.STYLEXD.FEATURE_CONV_2 = edict()
+__C.STYLEXD.FEATURE_CONV_2.USE_FEATURE_CONV = False
+__C.STYLEXD.FEATURE_CONV_2.TYPE = "default"              # 可自定义调整模型层数
+__C.STYLEXD.FEATURE_CONV_2.LAYER_NUM = 1
+__C.STYLEXD.FEATURE_CONV_2.KERNEL_SIZE = 3
+__C.STYLEXD.FEATURE_CONV_2.DILATION = 1
+
 __C.STYLEXD.LOSS = edict()
 """
 value of MAT_LOSS_TYPE should be selected in ["local", "global"]
@@ -44,6 +58,7 @@ local : only calculate mat loss in stitch loss, witch may cause cls loss raise
 global : calculate mat loss in all points
 """
 __C.STYLEXD.LOSS.MAT_LOSS_TYPE = "local"
+__C.STYLEXD.LOSS.MAT_LOSS_SYM = True
 __C.STYLEXD.LOSS.w_cls_loss = 0.5
 __C.STYLEXD.LOSS.w_mat_loss = 0.0
 

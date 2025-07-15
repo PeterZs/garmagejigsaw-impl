@@ -20,7 +20,7 @@ def build_encoder(arch, feat_dim, global_feat=True, **kwargs):
                 if isinstance(feat_dim, list):
                     model = PointNet2PTMSGDynamic(feat_dim[0], feat_dim[1])
                 else:
-                    model = PointNet2PTMSGDynamic(in_feat_dim, feat_dim)
+                    model = PointNet2PTMSGDynamic(in_feat_dim, feat_dim)  # Currently used
             else:
                 if isinstance(feat_dim, list):
                     model = PointNet2PTMSG(feat_dim[0], feat_dim[1])

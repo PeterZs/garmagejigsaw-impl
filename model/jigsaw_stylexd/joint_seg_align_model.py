@@ -9,6 +9,8 @@ from model import MatchingBaseModel, build_encoder
 from .affinity_layer import build_affinity
 from .pc_classifier_layer import build_pc_classifier
 from .attention_layer import PointTransformerLayer, CrossAttentionLayer, PointTransformerBlock
+from .feature_conv_layer import feature_conv_layer_contourwise
+
 from utils import permutation_loss
 from utils import get_batch_length_from_part_points, square_distance, is_contour_OutLine, merge_c2p_byPanelIns
 from utils import pointcloud_visualize, pointcloud_and_stitch_visualize
@@ -26,6 +28,7 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             raise ValueError(f"self.mat_loss_type = {self.mat_loss_type} is wrong")
         self.w_cls_loss = self.cfg.MODEL.LOSS.w_cls_loss    # 点分类损失
         self.w_mat_loss = self.cfg.MODEL.LOSS.w_mat_loss    # 缝合损失
+        self.cal_mat_loss_sym = self.cfg.MODEL.LOSS.get("MAT_LOSS_SYM", True)   # 用斜对称的gt stitching mat来计算loss
         self.pc_cls_threshold = self.cfg.MODEL.PC_CLS_THRESHOLD  # 二分类结果的阈值
 
         self.use_point_feature = cfg.MODEL.get("USE_POINT_FEATURE", True)                   # 是否提取点的特征
@@ -58,6 +61,38 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             self.pc_encoder = self._init_pc_encoder()
         if self.use_uv_feature:
             self.uv_encoder = self._init_uv_encoder()
+
+        # === feature conv ===
+        """
+        在PointTransformer之前，对属于同一个环的点的特征进行1d卷积操作
+        """
+        self.use_feature_conv = self.cfg.MODEL.get("FEATURE_CONV", {}).get("USE_FEATURE_CONV", False)
+        if self.use_feature_conv:
+            feature_conv_ks = self.cfg.MODEL.get("FEATURE_CONV", {}).get("KERNEL_SIZE", 3)
+            feature_conv_dilation = self.cfg.MODEL.get("FEATURE_CONV", {}).get("DILATION", 1)
+            feature_conv_type = self.cfg.MODEL.get("FEATURE_CONV", {}).get("TYPE", "default")
+            self.feature_conv = feature_conv_layer_contourwise(
+                in_channels=self.backbone_feat_dim,
+                out_channels=self.backbone_feat_dim,
+                type = feature_conv_type,
+                kernel_size=feature_conv_ks,
+                dilation=feature_conv_dilation,
+            )
+        """
+        在PointTransformer之后，对属于同一个环的点的特征进行1d卷积操作
+        """
+        self.use_feature_conv_2 = self.cfg.MODEL.get("FEATURE_CONV_2", {}).get("USE_FEATURE_CONV", False)
+        if self.use_feature_conv_2:
+            feature_conv_ks = self.cfg.MODEL.get("FEATURE_CONV_2", {}).get("KERNEL_SIZE", 3)
+            feature_conv_dilation = self.cfg.MODEL.get("FEATURE_CONV_2", {}).get("DILATION", 1)
+            feature_conv_type = self.cfg.MODEL.get("FEATURE_CONV_2", {}).get("TYPE", "default")
+            self.feature_conv_2 = feature_conv_layer_contourwise(
+                in_channels=self.backbone_feat_dim,
+                out_channels=self.backbone_feat_dim,
+                type = feature_conv_type,
+                kernel_size=feature_conv_ks,
+                dilation=feature_conv_dilation,
+            )
 
         self.aff_feat_dim = self.cfg.MODEL.AFF_FEAT_DIM
         assert self.aff_feat_dim % 2 == 0, "The affinity feature dimension must be even!"
@@ -120,13 +155,13 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
                 self.tf_layers_ml.append(tf_block)
                 self.tf_layers.append(("block", tf_block))
 
-
         # 分阶段学习 -----------------------------------------------------------------------------------------------------
         self.is_train_in_stages = self.cfg.MODEL.get("IS_TRAIN_IN_STAGE", False)  # 是否分阶段学习
         self.init_dynamic_adjustment()  # 分阶段学习的初始化
 
-    # 提取点云特征的pointnet2
+
     def _init_pc_encoder(self):
+        # 提取点云特征的pointnet2
         in_feat_dim = 3
         encoder = build_encoder(
             self.cfg.MODEL.ENCODER,
@@ -135,8 +170,10 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             in_feat_dim=in_feat_dim,
         )
         return encoder
-    # 提取UV特征的pointnet2
+
+
     def _init_uv_encoder(self):
+        # 提取UV特征的pointnet2
         in_feat_dim = 3
         encoder = build_encoder(
             self.cfg.MODEL.ENCODER,
@@ -211,6 +248,9 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         panel_instance_seg = data_dict["panel_instance_seg"]
         # n_pcs_ [B, C] 当前为“每个contour有多少点，需要进行合并”
         n_pcs = data_dict["n_pcs"]
+        num_parts = data_dict["num_parts"]
+        # contour_n_pcs = data_dict["contour_n_pcs"]
+        # num_contours = data_dict["num_contours"]
 
         # # n_pcs [B, P] 每个panel有多少点
         # n_pcs = torch.zeros_like(n_pcs_)
@@ -240,6 +280,26 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         assert len(features)>0, "None feature extracted!"
         features = torch.concat(features,dim=-1)
 
+        # === 按板片为单位进行一维卷积
+        if self.use_feature_conv:
+            features_list = []
+
+            for b in range(B_size):
+                n_parts = num_parts[b]
+                n_pcs_part = n_pcs[b][:n_parts]
+                n_pcs_part_cumsum = torch.cumsum(n_pcs_part, dim=-1)
+
+                features_b = []
+                for i in range(len(n_pcs_part_cumsum)):
+                    st = 0 if i == 0 else n_pcs_part_cumsum[i - 1]
+                    ed = n_pcs_part_cumsum[i]
+                    # 一个板片上的特征
+                    part_feature = self.feature_conv(features[b][st:ed])  # shape: (N_i, D)
+                    features_b.append(part_feature)
+                features_list.append(torch.cat(features_b, dim=0))  # shape: (N_b, D)
+
+            features = torch.stack(features_list, dim=0)
+
         # === 提取出的特征输入到PointTransformer Layers\Blocks ===
         pcs_flatten = pcs.reshape(-1, 3).contiguous()
         # 顶点特征输入到PointTransformer层中，获取点与点之间的关系
@@ -267,6 +327,26 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
                         N_point
                     )
                 )
+
+        # === 按板片为单位进行一维卷积
+        if self.use_feature_conv_2:
+            features_list = []
+
+            for b in range(B_size):
+                n_parts = num_parts[b]
+                n_pcs_part = n_pcs[b][:n_parts]
+                n_pcs_part_cumsum = torch.cumsum(n_pcs_part, dim=-1)
+
+                features_b = []
+                for i in range(len(n_pcs_part_cumsum)):
+                    st = 0 if i == 0 else n_pcs_part_cumsum[i - 1]
+                    ed = n_pcs_part_cumsum[i]
+                    # 一个板片上的特征
+                    part_feature = self.feature_conv_2(features[b][st:ed])  # shape: (N_i, D)
+                    features_b.append(part_feature)
+                features_list.append(torch.cat(features_b, dim=0))  # shape: (N_b, D)
+
+            features = torch.stack(features_list, dim=0)
 
         # 预测点分类
         pc_cls = self.pc_classifier_layer(features.transpose(1, 2)).transpose(1, 2).squeeze(-1)
@@ -345,7 +425,10 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
             # 获取 对称的 gt_mat
             stitch_pcs_gt_mat_half = self._get_stitch_pcs_gt_mat(gt_mat, pc_cls_mask, B_size, N_point, n_stitch_pcs_sum)
-            stitch_pcs_gt_mat = stitch_pcs_gt_mat_half + stitch_pcs_gt_mat_half.transpose(-1, -2)
+            if self.cal_mat_loss_sym:
+                stitch_pcs_gt_mat = stitch_pcs_gt_mat_half + stitch_pcs_gt_mat_half.transpose(-1, -2)
+            else:
+                stitch_pcs_gt_mat = stitch_pcs_gt_mat_half
             mat_loss = permutation_loss(
                 ds_mat, stitch_pcs_gt_mat.float(), n_stitch_pcs_sum, n_stitch_pcs_sum
             )
@@ -361,8 +444,11 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
             # 获取 对称的 gt_mat
             stitch_pcs_gt_mat_half = gt_mat
-            stitch_pcs_gt_mat = stitch_pcs_gt_mat_half + stitch_pcs_gt_mat_half.transpose(-1, -2)
 
+            if self.cal_mat_loss_sym:
+                stitch_pcs_gt_mat = stitch_pcs_gt_mat_half + stitch_pcs_gt_mat_half.transpose(-1, -2)
+            else:
+                stitch_pcs_gt_mat = stitch_pcs_gt_mat_half
             n_pcs_sum = torch.ones((B_size), device=pcs.device, dtype=torch.int64) * N_point
             mat_loss = permutation_loss(
                 ds_mat_global, stitch_pcs_gt_mat.float(), n_pcs_sum, n_pcs_sum

@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+from torch import Tensor
+from typing import Optional as OptTensor
 import torch.nn.functional as F
 from torch_geometric.nn.pool import fps, knn
 from torch_geometric.utils import to_dense_batch
@@ -83,6 +85,44 @@ def query_ball_point(radius, nsample, xyz, new_xyz, piece_id, new_piece_id):
     return group_idx
 
 
+
+
+
+def uniform_sequence_sampling(x: Tensor, batch: OptTensor = None, ratio: float = 0.5) -> Tensor:
+    """
+    Uniformly samples points along the input sequence order.
+
+    Args:
+        x (Tensor): Input tensor of shape [N, F].
+        batch (LongTensor, optional): Batch assignment vector of shape [N].
+        ratio (float): Sampling ratio.
+
+    Returns:
+        LongTensor: Indices of the sampled points.
+    """
+    N = x.size(0)
+    num_samples = max(1, int(N * ratio))
+
+    if batch is None:
+        # Evenly select num_samples indices from 0 to N-1
+        indices = torch.linspace(0, N - 1, steps=num_samples).long()
+        return indices
+    else:
+        # Batch-wise uniform sampling
+        unique_batches = batch.unique(sorted=True)
+        sampled_idx = []
+
+        for b in unique_batches:
+            mask = (batch == b)
+            x_b = x[mask]
+            idx_b = torch.linspace(0, x_b.size(0) - 1, steps=max(1, int(x_b.size(0) * ratio))).long()
+            global_idx_b = mask.nonzero(as_tuple=False)[idx_b]
+            sampled_idx.append(global_idx_b)
+
+        return torch.cat(sampled_idx, dim=0).view(-1)
+
+
+
 class PointNetSetAbstractionMsgDynamic(nn.Module):
     def __init__(self, ratio, radius_list, nsample_list, in_channel, mlp_list):
         super(PointNetSetAbstractionMsgDynamic, self).__init__()
@@ -122,7 +162,7 @@ class PointNetSetAbstractionMsgDynamic(nn.Module):
         assert B == 1
         centroids = fps(xyz[0, :, :], batch=piece_id.reshape(B * N), ratio=self.ratio).unsqueeze(0)
         S = centroids.shape[1]
-        new_xyz = index_points(xyz, centroids)
+        new_xyz = index_points(xyz, centroids)  # 根据局部
         new_piece_id = index_points(piece_id, centroids)
         new_points_list = []
         for i, radius in enumerate(self.radius_list):

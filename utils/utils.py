@@ -115,10 +115,10 @@ def merge_c2p_byPanelIns(batch):
     :return:
     """
     B_size, N_point, _ = batch["pcs"].shape
-
+    batch["contour_n_pcs"] = batch["n_pcs"].clone()  # 每个contour的点数量（之前的n_pcs就是这个，但在这里n_pcs中属于相同板片的会进行合并）
+    batch["num_contours"] = batch["num_parts"].clone()
     # 重新计算 n_pcs
     for B in range(B_size):
-        # [todo] 重新计算 n_pcs、
         n_pcs = batch["n_pcs"][B].clone()
         batch["n_pcs"][B] = 0
         for contour_idx in range(batch["num_parts"][B]):

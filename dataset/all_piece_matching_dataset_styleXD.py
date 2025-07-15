@@ -505,8 +505,8 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 # 采样结果加入list
                 # [todo] 可以迭代式地，让采样的分布更均匀
                 if sample_num_arrangement_stitched[part_idx]>0:
-                    sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_stitched[part_idx])
-                    # sample_result = balancedSample(len(part_points), sample_num_arrangement_stitched[part_idx], iteration=20)
+                    # sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_stitched[part_idx])
+                    sample_result = balancedSample(len(part_points), sample_num_arrangement_stitched[part_idx], iteration=20)
                     sample_list.append(part_points[sample_result])
             stitched_sample_idx = np.concatenate(sample_list)
             stitched_sample_idx = sorted(stitched_sample_idx)
@@ -520,8 +520,8 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 # 采样结果加入list
                 # [todo] 可以迭代式地，让采样的分布更均匀
                 if sample_num_arrangement_unstitched[part_idx]>0:
-                    sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_unstitched[part_idx])
-                    # sample_result = balancedSample(len(part_points), sample_num_arrangement_unstitched[part_idx], iteration=20)
+                    # sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_unstitched[part_idx])
+                    sample_result = balancedSample(len(part_points), sample_num_arrangement_unstitched[part_idx], iteration=20)
                     sample_list.append(part_points[sample_result])
 
             if len(sample_list) > 0:
@@ -975,7 +975,8 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 2025_05:
                 stitch_noise_strength3 = stitch_noise_strength_base * (random.random()*1+0.5)
                 """
-                stitch_noise_strength3 = stitch_noise_strength_base * (random.random()*0.1+0.1)
+                # stitch_noise_strength3 = stitch_noise_strength_base * (random.random()*0.1+0.1)
+                stitch_noise_strength3 = stitch_noise_strength_base * (random.random() * 1 + 0.5)
                 unstitch_mask = np.zeros(cur_pcs.shape[0])
                 unstitch_mask[mat_gt[:, 0]] = 1
                 unstitch_mask[mat_gt[:, 1]] = 1
@@ -986,14 +987,14 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 noise3 = noise3 * stitch_noise_strength3 * mean_edge_len
                 cur_pcs[unstitch_mask] += noise3
 
-                # # === 对缝合的点的两端加相同噪声（只加一点点） ===
-                # stitch_noise_strength4 = stitch_noise_strength_base * (random.random()*0.2+0.1)
-                # noise4 = (np.random.rand(len(mat_gt), 3)*2.-1.)
-                # noise4 = noise4 / (np.linalg.norm(noise4, axis=1, keepdims=True) + 1e-6)
-                # noise4 = noise4 * stitch_noise_strength4 * mean_edge_len
-                # # for _ in range(3): noise4 = smooth_using_convolution(noise4)
-                # cur_pcs[mat_gt[:, 0]] += noise4
-                # cur_pcs[mat_gt[:, 1]] += noise4
+                # === 对缝合的点的两端加相同噪声（只加一点点） ===
+                stitch_noise_strength4 = stitch_noise_strength_base * (random.random()*0.2+0.1)
+                noise4 = (np.random.rand(len(mat_gt), 3)*2.-1.)
+                noise4 = noise4 / (np.linalg.norm(noise4, axis=1, keepdims=True) + 1e-6)
+                noise4 = noise4 * stitch_noise_strength4 * mean_edge_len
+                # for _ in range(3): noise4 = smooth_using_convolution(noise4)
+                cur_pcs[mat_gt[:, 0]] += noise4
+                cur_pcs[mat_gt[:, 1]] += noise4
 
                 # # === 对缝合的点再加点噪声（只加一点点） ===
                 # stitch_mask = ~unstitch_mask
