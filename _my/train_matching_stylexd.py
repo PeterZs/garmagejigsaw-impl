@@ -10,10 +10,16 @@ from dataset import build_stylexd_dataloader_train_val
 def train_model(cfg):
     if len(cfg.WEIGHT_FILE) > 0:
         ckp_path = cfg.WEIGHT_FILE
+        print(f"cfg.WEIGHT_FILE : {ckp_path}")
+        ex = "" if os.path.exists(ckp_path) else "Not"
+        print(f"{ckp_path} is {ex} exist")
     else:
         ckp_path = None
+        print(f"cfg.WEIGHT_FILE is None")
     if len(cfg.WEIGHT_FILE) > 0 and not os.path.exists(ckp_path):
+        print(f"cfg.WEIGHT_FILE No such file: {ckp_path}")
         ckp_path = None
+
 
     # initial Wandb logger
     logger_name = f"{cfg.MODEL_NAME}"
@@ -69,6 +75,11 @@ def train_model(cfg):
     train_loader, val_loader = build_stylexd_dataloader_train_val(cfg)
 
     if not cfg.TRAIN.FINETUNE:
+
+        print(f"{ckp_path}\n")
+        print(os.path.exists(ckp_path))
+
+        model.load_state_dict(torch.load(ckp_path)['state_dict'])
         print("Start training")
         trainer.fit(model, train_loader, val_loader, ckpt_path=ckp_path)
         print("Done training")

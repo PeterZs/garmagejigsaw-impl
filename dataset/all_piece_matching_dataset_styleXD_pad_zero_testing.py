@@ -1,3 +1,13 @@
+"""
+尝试使用 Zero Padding 的方法
+之前用的 repeat padding 有严重的缺陷：
+    1. 点间距不好控制
+    2. 重复的点影响特征提取
+    3. 训练数据和生成数据的特征分布对不齐
+
+"""
+
+
 import json
 import math
 import os
@@ -88,7 +98,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
         self.dataset_split_dir = dataset_split_dir
         self.data_list = self._read_data()
-        # self.data_list = self.data_list[::50]
+        # self.data_list = self.data_list[::200]
 
         self.category = category if category.lower() != "all" else ""
 
@@ -141,7 +151,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         print("dataset length: ", len(self.data_list))
 
         self.data_keys = data_keys
-
 
         if overfit > 0:
             self.data_list = self.data_list[:overfit]
@@ -904,6 +913,9 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         # 获取所需路径 ------------------------------------------------------------------------------------------------
         mesh_file_path = self.data_list[index]
 
+        if mesh_file_path == 'data/stylexd_jigsaw/train/garment_11237':
+            a=1
+
         try:
             garment_json_path = glob(os.path.join(mesh_file_path, "annotations", "garment*.json"))[0]
             garment_json_path = garment_json_path if os.path.exists(garment_json_path) else ""
@@ -1158,46 +1170,6 @@ def build_stylexd_dataloader_train_val(cfg, shuffle_val_loader=False):
     )
     return train_loader, val_loader
 
-# def build_stylexd_dataloader_test(cfg):
-#     # test用的是董远生成的不带l的obj文件，用边界点采样法
-#     data_dict = dict(
-#         mode="test",
-#         data_dir=cfg.DATA.DATA_DIR,
-#         data_keys=cfg.DATA.DATA_KEYS,
-#         data_types=cfg.DATA.DATA_TYPES.TEST,
-#
-#         num_points=cfg.DATA.NUM_PC_POINTS,
-#         min_num_part=cfg.DATA.MIN_NUM_PART,
-#         max_num_part=cfg.DATA.MAX_NUM_PART,
-#
-#         shrink_mesh=cfg.DATA.SHRINK_MESH.TEST,
-#         shrink_mesh_param=cfg.DATA.SHRINK_MESH_PARAM.TEST,
-#
-#         pcs_sample_type=cfg.DATA.PCS_SAMPLE_TYPE.TEST,
-#         pcs_noise_type=cfg.DATA.PCS_NOISE_TYPE,
-#         pcs_noise_strength=cfg.DATA.PCS_NOISE_STRENGTH,
-#         panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.TEST,
-#
-#         scale_range=cfg.DATA.SCALE_RANGE,
-#         rot_range=cfg.DATA.ROT_RANGE,
-#         trans_range=cfg.DATA.TRANS_RANGE,
-#
-#         overfit=cfg.DATA.OVERFIT,
-#         min_part_point=cfg.DATA.MIN_PART_POINT,
-#
-#         read_uv=True,
-#     )
-#     test_set = AllPieceMatchingDataset_stylexd(**data_dict)
-#     test_loader = DataLoader(
-#         dataset=test_set,
-#         batch_size=1,
-#         shuffle=cfg.DATA.SHUFFLE,
-#         num_workers=1,
-#         pin_memory=True,
-#         drop_last=False,
-#         persistent_workers=(cfg.NUM_WORKERS > 0),
-#     )
-#     return test_loader
 
 def build_stylexd_dataloader_inference(cfg):
     # test用的是董远生成的不带l的obj文件，用边界点采样法

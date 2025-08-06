@@ -7,7 +7,14 @@ import numpy as np
 from model import build_model
 from dataset import build_stylexd_dataloader_inference
 
-from utils import  to_device, get_pointstitch, pointstitch_2_edgestitch, pointstitch_2_edgestitch2, export_video_results
+from utils import  (
+    to_device,
+    get_pointstitch,
+    pointstitch_2_edgestitch,
+    pointstitch_2_edgestitch2,
+    pointstitch_2_edgestitch3,
+    pointstitch_2_edgestitch4,
+    export_video_results)
 from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcloud_and_stitch_logits_visualize, composite_visualize
 from utils.inference.save_result import save_result
 
@@ -29,19 +36,43 @@ if __name__ == "__main__":
     args = parse_args("Jigsaw")
 
     model = build_model(cfg).load_from_checkpoint(cfg.WEIGHT_FILE).cuda()
-    # 一些超参数从cfg文件中获得，不用ckpt中的
-    model.pc_cls_threshold = cfg.MODEL.PC_CLS_THRESHOLD
-    inference_loader = build_stylexd_dataloader_inference(cfg)
-    model.to("cpu")
+    # model.to("cpu")
+    model.pc_cls_threshold = 0.5
+
+    # TEST 找内鬼 ===
+    # model.train()
+    model.eval()
+    # model.pc_encoder.eval()
+    # model.uv_encoder.eval()
+    # try:    model.feature_conv.eval()
+    # except: pass
+    # model.tf_layers_ml.eval()
+    # for m in model.tf_layers_ml:
+    #     m.bn1.train()
+    #     m.bn2.train()
+    #     m.bn3.train()
+    # model.pc_classifier_layer.eval()
+    # model.pc_classifier_layer[0].train()
+    # model.affinity_extractor.eval()
+    # model.affinity_extractor[0].train()
+    # END TEST 找内鬼 ===
+
     #是否导出为视频（分图片）
     export_vis_result = False
     export_vis_source = True
 
+    inference_loader = build_stylexd_dataloader_inference(cfg)
     for idx, batch in tqdm(enumerate(inference_loader)):
 
         time1 = time.time()
         batch = to_device(batch, model.device)
-        inf_rst = model(batch)
+
+        # 检查是否存在太大的
+        if batch["pcs"].shape[-2]>3000:
+            print("num point too mach, continue...")
+            continue
+        with torch.no_grad():
+            inf_rst = model(batch)
         if data_type == "Garmage256":
             try:
                 data_id = int(os.path.basename(batch['mesh_file_path'][0]).split("_")[1])
@@ -49,8 +80,11 @@ if __name__ == "__main__":
                 data_id = idx
             g_basename = os.path.basename(batch['mesh_file_path'][0])
         else: data_id=int(batch['data_id'])
+        # [test]
+        if not data_id==1:
+            continue
 
-        # 获取点点缝合关系 -------------------------------------------------------------------------------------------------
+        # 获取并优化点点缝合关系 ------------------------------------------------------------------------------------------------
         # if data_type == "Garmage64":
         #     stitch_mat_full, stitch_indices_full, logits = (
         #         get_pointstitch(batch, inf_rst,
@@ -69,15 +103,19 @@ if __name__ == "__main__":
         #                         filter_too_small=True, filter_logits=0.05,
         #                         only_triu=True, filter_uncontinue=False,
         #                         show_pc_cls=False, show_stitch=False, export_vis_result = False))
+
+        # optimize point-point stitch
         if data_type == "Garmage256":
             stitch_mat_full, stitch_pcs, unstitch_pcs, stitch_indices, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
-                                sym_choice="", mat_choice="hun",
+                                sym_choice="", mat_choice="col_max",
                                 filter_neighbor_stitch=True, filter_neighbor = 1,
                                 filter_too_long=True, filter_length=0.15,
-                                filter_too_small=True, filter_logits=0.16,
-                                only_triu=True, filter_uncontinue=False,
+                                filter_too_small=True, filter_logits=0.11,
+                                only_triu=True, filter_uncontinue=True,
                                 show_pc_cls=False, show_stitch=False))
+            batch = to_device(batch, "cpu")
+
         # elif data_type == "brep_reso_128":
         #     stitch_mat_full, stitch_indices_full, logits = (
         #         get_pointstitch(batch, inf_rst,
@@ -127,12 +165,35 @@ if __name__ == "__main__":
         #                                                optimize_thresh_neighbor_index_dis=12,
         #                                                optimize_thresh_side_index_dis=6)
 
-        edgestitch_results = pointstitch_2_edgestitch2(batch, inf_rst,
+        # edgestitch_results = pointstitch_2_edgestitch2(batch, inf_rst,
+        #                                                stitch_mat_full, stitch_indices_full,
+        #                                                unstitch_thresh=12, fliter_len=2,
+        #                                                optimize_thresh_neighbor_index_dis=12,
+        #                                                optimize_thresh_side_index_dis=6,
+        #                                                auto_adjust=False)
+
+        # edgestitch_results = pointstitch_2_edgestitch2(batch, inf_rst,
+        #                                                stitch_mat_full, stitch_indices_full,
+        #                                                unstitch_thresh=12, fliter_len=2,
+        #                                                optimize_thresh_neighbor_index_dis=12,
+        #                                                optimize_thresh_side_index_dis=6,
+        #                                                auto_adjust=False)
+
+        # # todo stitch_mat_full 丢信息了，只能用stitch_indices_full
+        # edgestitch_results = pointstitch_2_edgestitch3(batch, inf_rst,
+        #                                                stitch_mat_full, stitch_indices_full,
+        #                                                unstitch_thresh=12, fliter_len=3, division_thresh = 9,
+        #                                                optimize_thresh_neighbor_index_dis=12,
+        #                                                optimize_thresh_side_index_dis=6,
+        #                                                auto_adjust=False)
+
+        edgestitch_results = pointstitch_2_edgestitch4(batch, inf_rst,
                                                        stitch_mat_full, stitch_indices_full,
-                                                       unstitch_thresh=12, fliter_len=2,
-                                                       optimize_thresh_neighbor_index_dis=24,
-                                                       optimize_thresh_side_index_dis=6,
+                                                       unstitch_thresh=12, fliter_len=2, division_thresh = 3,
+                                                       optimize_thresh_neighbor_index_dis=12,
+                                                       optimize_thresh_side_index_dis=15,
                                                        auto_adjust=False)
+
         garment_json = edgestitch_results["garment_json"]
 
         # 保存可视化结果 ---------------------------------------------------------------------------------------------------
@@ -152,3 +213,8 @@ if __name__ == "__main__":
         time2 = time.time()
         lst_tmp.append([time2-time1])
         print(np.mean(np.array(lst_tmp)[:,0]))
+
+        # if idx >10:
+        #     print("break")
+        #     break
+

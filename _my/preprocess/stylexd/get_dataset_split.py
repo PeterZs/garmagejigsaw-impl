@@ -37,13 +37,40 @@ def filter_toosmallpanel(garment_list, min_panel_boundary_len):
         for idx, mesh_file in enumerate(mesh_files):
             mesh = trimesh.load(mesh_file, force = "mesh", process = False)
             sum_boundary_point=0
-            for loop in igl.all_boundary_loop(mesh.faces):
+            loops = igl.all_boundary_loop(mesh.faces)
+            if len(loops)>max_contour_num_in1panel:
+                valid=False
+                break
+            for loop in loops:
                 sum_boundary_point+=len(loop)
             if sum_boundary_point<min_panel_boundary_len:
                 valid=False
                 break
         if valid:
             filtered_list.append(garment_dir)
+    return filtered_list
+
+
+def filter_toomuch_contours(garment_list, max_contour_num_in1panel=7):
+    """
+    过滤掉单一板片中，contour数量过多的例子
+    :param garment_list:
+    :param min_panel_boundary_len:
+    :return:
+    """
+    filtered_list = []
+    for garment_dir in tqdm(garment_list):
+        mesh_files = sorted(glob(os.path.join(garment_dir, "piece_*.obj")))
+        valid = True
+        for idx, mesh_file in enumerate(mesh_files):
+            mesh = trimesh.load(mesh_file, force = "mesh", process = False)
+            loops = igl.all_boundary_loop(mesh.faces)
+            if len(loops)>max_contour_num_in1panel:
+                valid=False
+                break
+        if valid:
+            filtered_list.append(garment_dir)
+        print(f"{mesh_file} filtered: {len(loops)} contours.")
     return filtered_list
 
 
@@ -67,8 +94,9 @@ def keep_percentage(lst, r):
 
 
 if __name__ == "__main__":
-    max_panel_num = 64
+    max_panel_num = 32
     min_panel_boundary_len = 16
+    max_contour_num_in1panel = 7
 
     dataset_dir = "data/stylexd_jigsaw/train"
     output_dir = "_my/preprocess/stylexd/results/dataset_split"
@@ -84,8 +112,11 @@ if __name__ == "__main__":
         # 过滤掉Panel数量过多的Garment
         filtered_garments_dir = filter_toomuchpanel(all_garment_dir, max_panel_num)
 
-        # 过滤掉存在特别小的Panel的Garment
+        # # 过滤掉存在特别小的Panel的Garment
         filtered_garments_dir = filter_toosmallpanel(filtered_garments_dir, min_panel_boundary_len)
+
+        # 20250730新增，过滤掉单一板片中contour太多的衣服
+        filtered_garments_dir = filter_toomuch_contours(filtered_garments_dir, max_contour_num_in1panel=max_contour_num_in1panel)
 
         # 仅保留文件名
         filtered_garments_dir = [os.path.basename(dir_) for dir_ in filtered_garments_dir]
@@ -107,7 +138,7 @@ if __name__ == "__main__":
 
     # 按批次分别存放
     Q_type = ["Q1", "Q2", "Q4"]  # 批次
-    Q_range = [1, 0.1, 1]  # 每批数据采样的比例
+    Q_range = [1, 0.2, 1]  # 每批数据采样的比例
     Q_list = {k:[] for k in Q_type}
 
     for garments_dir in tqdm(filtered_garments_dir):

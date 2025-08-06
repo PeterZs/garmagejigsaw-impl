@@ -128,7 +128,7 @@ def merge_c2p_byPanelIns(batch):
 
     # 重新计算 num_parts、part_valids、piece_id、panel_instance_seg
     for B in range(B_size):
-        num_parts = batch["panel_instance_seg"][B][batch["num_parts"][B]-1]+1
+        num_parts = batch["panel_instance_seg"][B][batch["panel_instance_seg"][B]>=0][-1]+1
         n_pcs_cumsum = torch.cumsum(batch["n_pcs"][B][:num_parts], dim=-1)
         batch["num_parts"][B] = num_parts
         batch["part_valids"][B] = 0

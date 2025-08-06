@@ -158,6 +158,7 @@ def get_pc_bbox(pc: np.array, type: object = "ccwh") -> object:
         raise ValueError()
 
     if isinstance(pc, np.ndarray):
+        pc = np.asarray(pc)
         if type == "ccwh":
             max_ = np.array([np.max(pc[:,ax]) for ax in range(3)])
             min_ = np.array([np.min(pc[:,ax]) for ax in range(3)])

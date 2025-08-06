@@ -1,3 +1,7 @@
+# sh experiments/tmp/tmp_train_stylexd_onDocker.sh  experiments/tmp/PClocal+UVlocal_FconvK33D11_tfB3_cls_InsNorm_sn12_bn8_globalSL_STloss0.1_Sample2000.yaml
+# run on 187
+# 和 pretrained/train_on_Q4_feature_conv/PClocal+UVlocal_FconvK33D11_tfB3_sn12_bn8_globalSL_STloss0.1_Sample2000
+# 基本一致，但是点分类、点缝合模型的BatchNorm改成了InstanceNorm
 
 MODEL_NAME: jigsaw_StyleXD
 MODULE: jigsaw_stylexd
@@ -6,24 +10,25 @@ PROJECT: jigsaw
 
 DATASET: stylexd.all_piece_matching
 
-# WEIGHT_FILE: results/jigsaw_StyleXD/model_save/last.ckpt
+WEIGHT_FILE: results/jigsaw_StyleXD/model_save/model_epoch=064.ckpt
 
-RESUME: false
+RESUME: True
 WANDB:
-  ID: gammtewg
+  ID: hv12lu7q
 
-GPUS: [0, 1]
-BATCH_SIZE: 12
-NUM_WORKERS: 12
+GPUS: [0]
+BATCH_SIZE: 10
+NUM_WORKERS: 8
 
 TRAIN:
   NUM_EPOCHS: 100
-  LR: 0.001
+  LR: 0.0003
   WEIGHT_DECAY: 0.
   WARMUP_RATIO: 0.
   LR_SCHEDULER: 'cosine' # [notice] 恢复训练时不开这个
-  LR_DECAY: 50.
+  LR_DECAY: 1.5
   VAL_EVERY: 1
+  FINETUNE: True
 
 MODEL:
   USE_POINT_FEATURE: True   # 是否提取点特征
@@ -36,7 +41,7 @@ MODEL:
   ENCODE_ALL_ONCE: False  # 不论使用点云、UV、或是法线特征，都使用同一个encoder提取特征
 
   FEATURE_CONV:
-    USE_FEATURE_CONV: False
+    USE_FEATURE_CONV: True
     TYPE: "default"
     LAYER_NUM: 1
     KERNEL_SIZE: 3
@@ -55,9 +60,9 @@ MODEL:
     NORM: "batch"
 
   POINTCLASSIFIER:
-    NORM: "batch"
+    NORM: "instance"
   STITCHPREDICTOR:
-    NORM: "batch"
+    NORM: "instance"
 
   IS_TRAIN_IN_STAGE: False  # 是否分阶段训练
   TRAIN_IN_STAGE:
@@ -76,7 +81,7 @@ CALLBACK:
 
 DATA:
   DATA_DIR: "/home/data/StyleXD/preprocessed_jigsaw"
-  DATASET_SPLIT_DIR: "/home/data/StyleXD/preprocessed_jigsaw/dataset_split"
+  DATASET_SPLIT_DIR: "/home/data/StyleXD/preprocessed_jigsaw/dataset_split_Q4finetune/"
   DATA_TYPES:
     INFERENCE: ["Garmage256_SL"]
 
@@ -108,17 +113,15 @@ DATA:
     VAL: False
     INFERENCE: False
   SHRINK_BYSTITCH_STRENGTH:
-    TRAIN: 0
-    VAL: 0
+    TRAIN: 1
+    VAL: 1
     INFERENCE: 0
-    STITCH:
-      ONLY_SAMPLE_BOUNDARY: False
 
   PCS_NOISE_TYPE: default  # default  normal
   PCS_NOISE_STRENGTH: 0.0
   USE_STITCH_NOISE: True  # 是否沿着缝合线加噪（仅训练）
   STITCH_NOISE_STRENGTH: 12.
-  STITCH_NOISE_RANDOM_RANGE: [-1., 1.]
+  STITCH_NOISE_RANDOM_RANGE: [-1.0, 1.]  # [-1., 1.]
 
   PANEL_NOISE_TYPE:  # 在Panel上加噪声的类型
     TRAIN: bbox
@@ -127,7 +130,7 @@ DATA:
   SCALE_RANGE: 0.07
   ROT_RANGE: 3
   TRANS_RANGE: 5
-  BBOX_NOISE_STRENGTH: 2
+  BBOX_NOISE_STRENGTH: 8
 
 # STATS is for eval
 STATS: "./results/jigsaw_4x4_128_512_250e_cosine_everyday/stats/eval"

@@ -1,9 +1,11 @@
 from copy import deepcopy
 
 import torch
+import numpy as np
 from torch import nn
 import torch.nn.functional as F
 from torch.nn import BCELoss
+import warnings
 
 from model import MatchingBaseModel, build_encoder
 from .affinity_layer import build_affinity
@@ -12,10 +14,11 @@ from .attention_layer import PointTransformerLayer, CrossAttentionLayer, PointTr
 from .feature_conv_layer import feature_conv_layer_contourwise
 
 from utils import permutation_loss
-from utils import get_batch_length_from_part_points, square_distance, is_contour_OutLine, merge_c2p_byPanelIns
+from utils import get_batch_length_from_part_points, merge_c2p_byPanelIns  # , is_contour_OutLine
 from utils import pointcloud_visualize, pointcloud_and_stitch_visualize
-from utils import Sinkhorn, hungarian, stitch_indices2mat, stitch_mat2indices
-
+from utils import Sinkhorn, hungarian, stitch_indices2mat, stitch_mat2indices, get_pointstitch
+from sklearn.metrics import f1_score
+from concurrent.futures import ThreadPoolExecutor
 
 
 class JointSegmentationAlignmentModel(MatchingBaseModel):
@@ -42,25 +45,38 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         self.pc_feat_dim = self.cfg.MODEL.get("PC_FEAT_DIM", 128)
         self.uv_feat_dim = self.cfg.MODEL.get("UV_FEAT_DIM", 128)
 
+        # 是否用同一encoder提取特征（假设输入有 点云、uv、normal，concat到一起用同一个encoder提取特征）
+        self.encode_all_once = self.cfg.MODEL.get("ENCODE_ALL_ONCE", False)
+        if self.encode_all_once:
+            assert not self.use_global_point_feature
+            assert not self.use_global_uv_feature
+
         # === 计算backbone提取的特征维度 ===
         self.backbone_feat_dim = 0
+        self.in_dim_sum = 0
         if self.use_point_feature:
             if self.use_local_point_feature:
                 self.backbone_feat_dim += self.pc_feat_dim
+                self.in_dim_sum+=3
             if self.use_global_point_feature:
                 self.backbone_feat_dim += self.pc_feat_dim
         if self.use_uv_feature:
             if self.use_local_uv_feature:
                 self.backbone_feat_dim += self.uv_feat_dim
+                self.in_dim_sum+=2
             if self.use_global_uv_feature:
                 self.backbone_feat_dim += self.uv_feat_dim
 
         assert self.backbone_feat_dim!=0, "No feature will be extracted"
 
-        if self.use_point_feature:
-            self.pc_encoder = self._init_pc_encoder()
-        if self.use_uv_feature:
-            self.uv_encoder = self._init_uv_encoder()
+        if not self.encode_all_once:
+            if self.use_point_feature:
+                self.pc_encoder = self._init_pc_encoder()
+            if self.use_uv_feature:
+                self.uv_encoder = self._init_uv_encoder()
+        else:
+            self.all_encoder = self._init_all_encoder(in_feat_dim=self.in_dim_sum, feat_dim=self.backbone_feat_dim)
+
 
         # === feature conv ===
         """
@@ -98,7 +114,6 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         assert self.aff_feat_dim % 2 == 0, "The affinity feature dimension must be even!"
         self.half_aff_feat_dim = self.aff_feat_dim // 2
 
-        # self.encoder = self._init_encoder()
         self.pccls_feat_dim = self.backbone_feat_dim
         self.pc_classifier_layer = self._init_pc_classifier_layer()
         self.affinity_extractor = self._init_affinity_extractor()
@@ -159,7 +174,6 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         self.is_train_in_stages = self.cfg.MODEL.get("IS_TRAIN_IN_STAGE", False)  # 是否分阶段学习
         self.init_dynamic_adjustment()  # 分阶段学习的初始化
 
-
     def _init_pc_encoder(self):
         # 提取点云特征的pointnet2
         in_feat_dim = 3
@@ -170,7 +184,6 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             in_feat_dim=in_feat_dim,
         )
         return encoder
-
 
     def _init_uv_encoder(self):
         # 提取UV特征的pointnet2
@@ -183,9 +196,31 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         )
         return encoder
 
+    def _init_all_encoder(self, in_feat_dim, feat_dim):
+        # 提取点云特征的pointnet2
+        encoder = build_encoder(
+            self.cfg.MODEL.ENCODER,
+            feat_dim=feat_dim,
+            global_feat=False,
+            in_feat_dim=in_feat_dim,
+        )
+        return encoder
+
     def _init_affinity_extractor(self):
+        norm = self.cfg.MODEL.STITCHPREDICTOR.get("NORM", "batch")
+
+        assert norm in ["batch", "instance"]
+
+        def get_norm(norm_type, dim):
+            if norm_type == "batch":
+                return nn.BatchNorm1d(dim)
+            elif norm_type == "instance":
+                return nn.InstanceNorm1d(dim)
+            else:
+                raise ValueError(f"Unsupported norm type: {norm_type}")
+
         affinity_extractor = nn.Sequential(
-            nn.BatchNorm1d(self.backbone_feat_dim),
+            get_norm(norm, self.backbone_feat_dim),
             nn.ReLU(inplace=True),
             nn.Conv1d(self.backbone_feat_dim, self.aff_feat_dim, 1),
         )
@@ -193,13 +228,16 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
     def _init_affinity_layer(self):
         affinity_layer = build_affinity(
-            self.cfg.MODEL.AFFINITY.lower(), self.aff_feat_dim
+            self.cfg.MODEL.AFFINITY.lower(),
+            self.aff_feat_dim,
+            norm=self.cfg.MODEL.POINTCLASSIFIER.get("NORM", "batch"),
         )
         return affinity_layer
 
     def _init_pc_classifier_layer(self):
         pc_classifier_layer = build_pc_classifier(
-            self.pccls_feat_dim
+            self.pccls_feat_dim,
+            norm=self.cfg.MODEL.POINTCLASSIFIER.get("NORM", "batch"),
         )
         return pc_classifier_layer
 
@@ -222,6 +260,14 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
         uv_feats = valid_feats.reshape(B, N_sum, -1)  # [B, N_sum, F]
         return uv_feats
 
+    def _extract_all_feats(self, pcs_list:list, batch_length):
+        pcs_all = torch.cat(pcs_list, dim=-1)
+        B, N_sum, _ = pcs_all.shape  # [B, N_sum, 3]
+        valid_pcs = pcs_all.reshape(B * N_sum, -1)
+        valid_feats = self.all_encoder(valid_pcs.to(torch.float32), batch_length)  # [B * N_sum, F]
+        feats = valid_feats.reshape(B, N_sum, -1)  # [B, N_sum, F]
+        return feats
+
     def _get_stitch_pcs_feats(self, feat, n_stitch_pcs_sum, pc_cls_mask, B_size, N_point, F_dim):
         critical_feats = torch.zeros(B_size, N_point, F_dim, device=self.device, dtype=feat.dtype)
         for b in range(B_size):
@@ -234,51 +280,71 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             stitch_pcs_gt_mat[B][:n_stitch_pcs_sum[B], :n_stitch_pcs_sum[B]] = mat_gt[B][pc_cls_mask[B] == 1][:,pc_cls_mask[B] == 1]
         return stitch_pcs_gt_mat
 
-    def forward(self, data_dict):
+    def forward(self, data_dict, pc_cls_mask_predefine=None):
         out_dict = dict()
         # 根据 panel_instance_seg，将contours合并为panels(为了更有效的提取panel内部的环的特征)
         data_dict = merge_c2p_byPanelIns(deepcopy(data_dict))
 
         pcs = data_dict.get("pcs", None)  # [B_size, N_point, 3]
         uv = data_dict.get("uv", None)
+
         B_size, N_point, _ = pcs.shape
         piece_id = data_dict["piece_id"]
         part_valids = data_dict["part_valids"]
         n_valid = torch.sum(part_valids, dim=1).to(torch.long)  # [B]
-        panel_instance_seg = data_dict["panel_instance_seg"]
-        # n_pcs_ [B, C] 当前为“每个contour有多少点，需要进行合并”
+        # panel_instance_seg = data_dict["panel_instance_seg"]
         n_pcs = data_dict["n_pcs"]
         num_parts = data_dict["num_parts"]
         # contour_n_pcs = data_dict["contour_n_pcs"]
         # num_contours = data_dict["num_contours"]
 
-        # # n_pcs [B, P] 每个panel有多少点
-        # n_pcs = torch.zeros_like(n_pcs_)
-        # for B in range(B_size):
-        #     for contour_idx, num in enumerate(n_pcs_[B]):
-        #         panel_idx = panel_instance_seg[B][contour_idx]
-        #         # if not is_contour_OutLine(contour_idx, panel_instance_seg[B])[0]:
-        #         # n_pcs[B][panel_idx] += num
-
         batch_length = get_batch_length_from_part_points(n_pcs, n_valids=n_valid).to(self.device)
+
+
+        # # test
+        # test_encoder = build_encoder(
+        #     self.cfg.MODEL.ENCODER,
+        #     feat_dim=self.backbone_feat_dim,
+        #     global_feat=False,
+        #     in_feat_dim=5,
+        # )
+        # test_encoder = test_encoder.to(self.device)
+        # test_pcs_all = torch.cat([pcs, uv[..., :-1]], dim=-1)
+        # B, N_sum, _ = test_pcs_all.shape  # [B, N_sum, 3]
+        # test_valid_pcs = test_pcs_all.reshape(B * N_sum, -1)
+        # test_valid_feats = test_encoder(test_valid_pcs.to(torch.float32), batch_length)  # [B * N_sum, F]
+        # test_feats = test_valid_feats.reshape(B, N_sum, -1)  # [B, N_sum, F]
+        # # test end
+
         # === 用PointNet从点云或UV中提取特征，并拼接 ===
-        features = []
-        if self.use_point_feature:
-            if self.use_local_point_feature:
-                local_pcs_feats  = self._extract_pointcloud_feats(pcs, batch_length)
-                features.append(local_pcs_feats)
-            if self.use_global_point_feature:
-                pcs_feats_global = self._extract_pointcloud_feats(pcs, torch.tensor([N_point] * B_size))
-                features.append(pcs_feats_global)
-        if self.use_uv_feature:
-            if self.use_local_uv_feature:
-                uv_feats = self._extract_uv_feats(uv.to(torch.float32), batch_length)
-                features.append(uv_feats)
-            if self.use_global_uv_feature:
-                uv_feats = self._extract_uv_feats(uv.to(torch.float32), torch.tensor([N_point]*B_size))
-                features.append(uv_feats)
-        assert len(features)>0, "None feature extracted!"
-        features = torch.concat(features,dim=-1)
+        if not self.encode_all_once:
+            features = []
+            if self.use_point_feature:
+                if self.use_local_point_feature:
+                    local_pcs_feats = self._extract_pointcloud_feats(pcs, batch_length)
+                    features.append(local_pcs_feats)
+                if self.use_global_point_feature:
+                    pcs_feats_global = self._extract_pointcloud_feats(pcs, torch.tensor([N_point] * B_size))
+                    features.append(pcs_feats_global)
+            if self.use_uv_feature:
+                if self.use_local_uv_feature:
+                    uv_feats = self._extract_uv_feats(uv.to(torch.float32), batch_length)
+                    features.append(uv_feats)
+                if self.use_global_uv_feature:
+                    uv_feats = self._extract_uv_feats(uv.to(torch.float32), torch.tensor([N_point] * B_size))
+                    features.append(uv_feats)
+            assert len(features) > 0, "None feature extracted!"
+            features = torch.concat(features, dim=-1)
+        else:
+            # 用同一个encoder提取所有特征
+            pcs_list = []
+            if self.use_point_feature:
+                if self.use_local_point_feature:
+                    pcs_list.append(pcs)
+            if self.use_uv_feature:
+                if self.use_local_uv_feature:
+                    pcs_list.append(uv[..., :-1])
+            features = self._extract_all_feats(pcs_list, batch_length)
 
         # === 按板片为单位进行一维卷积
         if self.use_feature_conv:
@@ -348,10 +414,16 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
 
             features = torch.stack(features_list, dim=0)
 
+        out_dict.update({"features": features})
+
         # 预测点分类
         pc_cls = self.pc_classifier_layer(features.transpose(1, 2)).transpose(1, 2).squeeze(-1)
         pc_cls = torch.sigmoid(pc_cls)
         pc_cls_mask = ((pc_cls>self.pc_cls_threshold) * 1)
+
+        if pc_cls_mask_predefine is not None:
+            pc_cls_mask = pc_cls_mask_predefine
+
         out_dict.update({"pc_cls": pc_cls,
                          "pc_cls_mask": pc_cls_mask,})
 
@@ -466,6 +538,12 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             }
         )
 
+
+        loss = (cls_loss * self.w_cls_loss+
+                mat_loss * self.w_mat_loss)
+        loss_dict.update({"loss": loss,})
+
+
         # ------------------------- Following Only For Evaluation --------------------------------------------------
 
         # calculate stitch_dis_loss --------------------------------------------------------------------------------
@@ -526,19 +604,151 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
                 }
             )
 
+        if self.is_train_in_stages and self.trainer.validating:
+            with torch.no_grad():
+                self.val_ACC_list.append(float(ACC))
+
+        # point-point stitching metrics ------------------------------------------------------------------------
+        with torch.no_grad(), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            if torch.randint(0, 20, (1,)) == 0: # 避免过多执行，导致训练速度降低
+                data_dict_clone = {k: v.cpu().clone().detach() if isinstance(v, torch.Tensor) else v for k, v in zip(data_dict.keys(), data_dict.values())}
+                out_dict_clone = {k:v.cpu().clone().detach() if isinstance(v, torch.Tensor) else v for k,v in zip(out_dict.keys(),out_dict.values())}
+
+                item_num = data_dict_clone["pcs"].shape[0]
+                for i in range(item_num):
+                    data_dict_c = {k:v[i][None,...] if isinstance(v[i],torch.Tensor) else v[i] for k, v in zip(data_dict_clone.keys(), data_dict_clone.values())}
+                    out_dict_c = {k:v[i][None,...] if isinstance(v[i],torch.Tensor) else v[i] for k, v in zip(out_dict_clone.keys(), out_dict_clone.values())}
+
+                    # stitch_mat_full, _, _, _, stitch_indices_full, logits = (
+                    #     get_pointstitch(data_dict_c,
+                    #                     out_dict_c,
+                    #                     sym_choice="", mat_choice="hun",
+                    #                     filter_neighbor_stitch=False, filter_neighbor=3,
+                    #                     filter_too_long=False, filter_length=0.1,
+                    #                     filter_too_small=True, filter_logits=0.12,
+                    #                     only_triu=False, filter_uncontinue=False,
+                    #                     show_pc_cls=False, show_stitch=False))
+
+                    # get_pointstitch ===
+                    def safe_get_pointstitch(data_dict_c, out_dict_c):
+                        try:
+                            return get_pointstitch(                               data_dict_c, out_dict_c,
+                                sym_choice="", mat_choice="hun",
+                                filter_neighbor_stitch=False, filter_neighbor=3,
+                                filter_too_long=False, filter_length=0.1,
+                                filter_too_small=True, filter_logits=0.12,
+                                only_triu=False, filter_uncontinue=False,
+                                show_pc_cls=False, show_stitch=False
+                            )
+                        except Exception as e:
+                            print("[跳过 get_pointstitch] 异常:", e)
+                            return None, None, None, None, None, None
+
+                    # 定义任务函数
+                    def task(data_dict_c, out_dict_c):
+                        stitch_mat_full, _, _, _, stitch_indices_full, logits = safe_get_pointstitch(data_dict_c, out_dict_c)
+                        return stitch_mat_full, stitch_indices_full, logits
+
+                    data_list = [(data_dict_c, out_dict_c)]
+
+                    results = []
+                    with ThreadPoolExecutor(max_workers=1) as executor:
+                        futures = [executor.submit(task, data_dict_c, out_dict_c) for data_dict_c, out_dict_c in data_list]
+                        for i, future in enumerate(futures):
+                            try:
+                                result = future.result()
+                                results.append(result)
+                            except Exception as e:
+                                print(f"任务{i} 异常:", e)
+                                results.append((None, None, None))
+
+                    stitch_mat_full=results[0][0]
+                    stitch_indices_full=results[0][1]
+                    logits=results[0][2]
+                    if stitch_mat_full is None and stitch_indices_full is None and logits is None:
+                        continue
+
+                    # END get_pointstitch ===
+
+
+                    device = stitch_mat_full.device
+                    mat_gt = data_dict_c["mat_gt"]
+                    mat_gt = mat_gt == 1
+                    pcs = data_dict_c["pcs"].squeeze(0)
+                    normalize_range = data_dict_c['normalize_range']
+
+                    pc_cls = out_dict_c["pc_cls"]
+                    threshold = self.pc_cls_threshold
+                    pc_cls_ = pc_cls.squeeze(-1)
+
+                    point_num = pcs.shape[-2]
+                    if self.cal_mat_loss_sym:
+                        mat_gt = mat_gt + mat_gt.transpose(-1, -2)
+                    stitch_mat_full = stitch_mat_full >= 0.9
+
+                    # === 缝合Recall ===
+                    RECALL_STITCH = torch.sum(torch.bitwise_and(stitch_mat_full == mat_gt, mat_gt)) / torch.sum(mat_gt)
+                    loss_dict.update({
+                        "STITCH_RECALL": RECALL_STITCH,
+                    })
+
+                    # === 缝合 AMD (average mean distance) ===
+                    stitch_indices_pred = stitch_mat2indices(stitch_mat_full)
+                    stitch_indices_gt = stitch_mat2indices(mat_gt)
+                    if stitch_indices_pred.shape[-2]>0:
+                        mask_cls_pred = (pc_cls_ > threshold).squeeze(0)
+                        idx_range = torch.arange(0, point_num, dtype=torch.int64, device=mat_gt.device)
+                        stitch_map = torch.zeros((point_num), dtype=torch.int64).to(device) - 1
+                        stitch_map[stitch_indices_pred[:, 0]] = stitch_indices_pred[:, 1]
+                        stitch_map[stitch_indices_pred[:, 1]] = stitch_indices_pred[:, 0]
+
+                        stitch_map_gt = torch.zeros((point_num), dtype=torch.int64).to(device) - 1
+                        stitch_map_gt[stitch_indices_gt[:, 0]] = stitch_indices_gt[:, 1]
+                        stitch_map_gt[stitch_indices_gt[:, 1]] = stitch_indices_gt[:, 0]
+
+                        stitch_point_idx = idx_range[mask_cls_pred]
+
+                        stitch_cor_pred = stitch_map[stitch_point_idx]
+                        stitch_cor_gt = stitch_map_gt[stitch_point_idx]
+
+                        stitch_pair_valid_mask = torch.bitwise_and(stitch_cor_pred != -1, stitch_cor_gt != -1)
+                        stitch_point_idx_valid = stitch_point_idx[stitch_pair_valid_mask]
+
+                        stitch_cor_pred = stitch_map[stitch_point_idx_valid]
+                        stitch_cor_gt = stitch_map_gt[stitch_point_idx_valid]
+
+                        stitch_cor_position_pred = pcs[stitch_cor_pred]
+                        stitch_cor_position_gt = pcs[stitch_cor_gt]
+
+                        if len(stitch_point_idx_valid)>0:
+                            STITCH_AMD = torch.sum(torch.norm(stitch_cor_position_pred - stitch_cor_position_gt, dim=1)) / len(stitch_point_idx_valid)
+                            STITCH_AMD = STITCH_AMD.reshape(1)
+                            if not torch.isnan(STITCH_AMD):
+                                STITCH_AMD *= normalize_range
+                                loss_dict.update({
+                                    "STITCH_AMD": STITCH_AMD,
+                                })
+
+                    # === 缝合 F1 Score ===
+                        if len(stitch_point_idx_valid)>0:
+                            # 计算 F1
+                            STITCH_F1 = f1_score(
+                                stitch_cor_gt.detach().cpu().numpy(),
+                                stitch_cor_pred.detach().cpu().numpy(),
+                                average='macro'
+                            )
+                            if not np.isnan(STITCH_F1):
+                                loss_dict.update({
+                                    "STITCH_F1": STITCH_F1,
+                                })
         # if self.is_train_in_stages and self.training:
         #     with torch.no_grad():
         #         self.cls_loss_list.append(float(cls_loss))
         #         self.mat_loss_list.append(float(mat_loss))
 
-        if self.is_train_in_stages and self.trainer.validating:
-            with torch.no_grad():
-                self.val_ACC_list.append(float(ACC))
-
-
-        loss = (cls_loss * self.w_cls_loss+
-                mat_loss * self.w_mat_loss)
-        loss_dict.update({"loss": loss,})
+        torch.cuda.empty_cache()
         return loss_dict
 
     # 在训练开始时执行的

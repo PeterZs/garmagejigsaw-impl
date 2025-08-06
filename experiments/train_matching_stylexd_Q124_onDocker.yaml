@@ -33,6 +33,8 @@ MODEL:
   USE_LOCAL_UV_FEATURE: True       # 是否提取UV的全局特征
   USE_GLOBAL_UV_FEATURE: False     # 是否提取UV的全局特征
 
+  ENCODE_ALL_ONCE: False  # 不论使用点云、UV、或是法线特征，都使用同一个encoder提取特征
+
   FEATURE_CONV:
     USE_FEATURE_CONV: True
     TYPE: "default"
@@ -49,6 +51,14 @@ MODEL:
 
   TF_LAYER_NUM: 3     # PT层的数量
   USE_TF_BLOCK: True  # 是否将每一层 PointTransformer Layer 分别封装成一个包含残差效果的 Block
+  TF:
+    NORM: "batch"
+
+  POINTCLASSIFIER:
+    NORM: "batch"
+  STITCHPREDICTOR:
+    NORM: "batch"
+
   IS_TRAIN_IN_STAGE: False  # 是否分阶段训练
   TRAIN_IN_STAGE:
     W_CLS: 0.08
@@ -72,6 +82,7 @@ DATA:
     INFERENCE: ["Garmage256_SL"]
 
   NUM_PC_POINTS: 2000
+  RANDOM_SAMPLE_NUM: null
 
   SHUFFLE: True  # 打乱dataset
 
@@ -82,6 +93,8 @@ DATA:
     TRAIN: stitch
     VAL: stitch
     INFERENCE: boundary_pcs
+    STITCH:
+      ONLY_SAMPLE_BOUNDARY: False  # 如果为True，采样时不采样内部缝
 
   SHRINK_MESH:
     TRAIN: True
@@ -91,6 +104,14 @@ DATA:
     TRAIN: 0.8
     VAL: 0.8
     INFERENCE: 1
+  SHRINK_BYSTITCH:
+    TRAIN: False
+    VAL: False
+    INFERENCE: False
+  SHRINK_BYSTITCH_STRENGTH:
+    TRAIN: 0
+    VAL: 0
+    INFERENCE: 0
 
   PCS_NOISE_TYPE: default  # default  normal
   PCS_NOISE_STRENGTH: 0.0

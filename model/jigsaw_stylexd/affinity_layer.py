@@ -56,7 +56,8 @@ class AffinityDual(nn.Module):
         return M
 
 
-def build_affinity(affinity, dim):
+def build_affinity(affinity, dim, norm="batch"):
+    assert norm in ["batch", "instance"]
     if affinity.lower() == "aff_dual":  # this
         affinity_layer = AffinityDual(dim)
     elif affinity.lower() == "aff":

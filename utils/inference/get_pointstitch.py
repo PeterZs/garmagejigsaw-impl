@@ -44,19 +44,18 @@ def get_pointstitch(batch, inf_rst,
     # get stitch ---------------------------------------------------------------------------------------------------
     n_stitch_pcs_sum = inf_rst['n_stitch_pcs_sum']
     stitch_mat_pred_ = inf_rst["ds_mat"][:, :n_stitch_pcs_sum, :n_stitch_pcs_sum]
-
-    # 禁止相邻点相交 ------------------------------------------------------------------------------------------------------
-    # 禁止点自交
+    # 禁止相邻点相交 ===
+    # 自交
     stitch_mat_pred_[0][torch.eye(stitch_mat_pred_.shape[-1], stitch_mat_pred_.shape[-1]) == 1] = 0
-    # 禁止相邻点相交
-    # [todo] 收束类型的相邻点相交不应该被筛除，这个可以通过缝合距离来判断    这一步放到结尾比较合理
+    # 相邻点相交
     if filter_neighbor_stitch:
+        assert filter_neighbor <= 2
         i_indices = torch.arange(stitch_mat_pred_.shape[-1]).view(-1, 1).repeat(1, stitch_mat_pred_.shape[-1])
         j_indices = torch.arange(stitch_mat_pred_.shape[-1]).view(1, -1).repeat(stitch_mat_pred_.shape[-1], 1)
         mask_neighbor = torch.abs(i_indices - j_indices) < filter_neighbor
         stitch_mat_pred_[0][mask_neighbor] = 0
 
-    # 对称选项 ================================================
+    # 对称选项 ===
     stitch_mat_pred = torch.zeros_like(stitch_mat_pred_)
     if sym_choice == "sym_max":
         stitch_mat_pred_mask = stitch_mat_pred_ > stitch_mat_pred_.transpose(1, 2)
@@ -71,16 +70,17 @@ def get_pointstitch(batch, inf_rst,
     else:
         stitch_mat_pred[:] = stitch_mat_pred_[:]
 
-    if only_triu:
-        stitch_mat_pred = torch.triu(stitch_mat_pred)
+    # # 仅取上三角的缝合 ===
+    # if only_triu:
+    #     stitch_mat_pred = torch.triu(stitch_mat_pred)
 
-    # 去除明显太长的错误结果 ====================================
-    if filter_too_long:
-        dist_mat = torch.cdist(stitch_pcs, stitch_pcs)
-        filter_mask = dist_mat > filter_length
-        stitch_mat_pred[0][filter_mask] *= 0.2
+    # # 太长的缝合减少置信度 ===
+    # if filter_too_long:
+    #     dist_mat = torch.cdist(stitch_pcs, stitch_pcs)
+    #     filter_mask = dist_mat > filter_length
+    #     stitch_mat_pred[0][filter_mask] *= 0.2
 
-    # 两种办法：1，简单取行最大值；2，匈牙利 =======================
+    # 两种办法：1，简单取行最大值；2，匈牙利 ===
     if mat_choice == "col_max":  # 简单取行最大值
         stitch_mat = torch.zeros_like(stitch_mat_pred)
         max_values, max_indices = stitch_mat_pred.max(dim=-1)
@@ -101,11 +101,10 @@ def get_pointstitch(batch, inf_rst,
         raise ValueError(f"错误的mat_choice：{mat_choice}")
     stitch_mat = stitch_mat.int()  # 转换为int类型
 
-    # VISUALIZE predict stitch -------------------------------------------------------------------------------------
     pc_cls_mask = inf_rst["pc_cls_mask"].squeeze(0)
     stitch_pcs = pcs[pc_cls_mask == 1]
 
-    # 去除明显太长的错误结果 ====================================
+    # 去除明显太长的错误结果 ===
     if filter_too_long:
         stitch_indices = stitch_mat2indices(stitch_mat[:, :].detach().cpu().numpy().squeeze(0))
         stitch_dis = torch.sqrt(
@@ -115,7 +114,7 @@ def get_pointstitch(batch, inf_rst,
         stitch_mat = torch.tensor(stitch_indices2mat(stitch_pcs.shape[-2], stitch_indices),
                                   device=pcs.device, dtype=torch.int64).unsqueeze(0)
 
-    # 删除概率太小的 ===========================================
+    # 删除概率太小的 ===
     if filter_too_small:
         # col_max0.2 hun0.15
         pc_stitch_threshold = filter_logits
@@ -129,15 +128,15 @@ def get_pointstitch(batch, inf_rst,
     stitch_mat = stitch_mat.to(torch.int64)
     stitch_mat[stitch_mat==1] = ~pc_stitch_mask*1
     stitch_indices = stitch_mat2indices(stitch_mat[:, :].detach().cpu().numpy().squeeze(0))
-    # [可视化] 缝合点上，带有概率的缝合关系 =========================
+
+    # 缝合的置信度 ===
     logits = np.zeros(stitch_indices.shape[0])
     logits[:] = (logits_.detach().cpu().numpy())
     # if show_stitch:
     #     pointcloud_and_stitch_logits_visualize(stitch_pcs, stitch_indices, logits,
     #                                            title=f"predict stitch(threshold={pc_stitch_threshold}) in stitch points", )
 
-    # [可视化]所有点上，带有概率的缝合关系 =========================
-    # 获取完整mat上的缝合关系
+    # 获取完整mat（缝合点+不缝合点）上的缝合关系 ===
     stitch_mat_full = torch.zeros((1, pcs.shape[0], pcs.shape[0]), dtype=torch.int64, device=pcs.device)
     mask1 = torch.zeros((1, pcs.shape[0], pcs.shape[0]), dtype=torch.bool, device=pcs.device)
     mask1[:, pc_cls_mask == 1, :] = True
@@ -146,80 +145,95 @@ def get_pointstitch(batch, inf_rst,
     stitch_mat_full_mask = torch.bitwise_and(mask1, mask2)
     stitch_mat_full[stitch_mat_full_mask] = stitch_mat.reshape(-1)
 
-    # 仅取上三角部分 =========================
-    if only_triu:
-        stitch_mat_full = torch.triu(stitch_mat_full)
+    # # 仅取上三角部分 ===
+    # if only_triu:
+    #     stitch_mat_full = torch.triu(stitch_mat_full)
 
     # 转换成缝在一起的两个点的indices
     stitch_indices_full = stitch_mat2indices(stitch_mat_full)
 
-    # 筛除不连续的缝合（缝合的对象panel突然变了）=============================
-    if filter_uncontinue:
-        # pointcloud_and_stitch_visualize(pcs, stitch_indices_full.detach().cpu().numpy(),
-        #             title=f"predict stitch(threshold={pc_stitch_threshold}) in all points")
-        piece_id = batch["piece_id"][0]
-        piece_id_cor = piece_id[stitch_indices_full[:,1]]
-        mask_r = torch.concat([piece_id_cor[:-1] == piece_id_cor[1:],torch.tensor([False],device=piece_id.device)])
-        mask_l = torch.concat([torch.tensor([False],device=piece_id.device),piece_id_cor[1:] == piece_id_cor[:-1]])
-        mask = torch.logical_or(mask_r, mask_l)
-        stitch_indices_full = stitch_indices_full[mask]
-        stitch_mat_full = stitch_indices2mat(pcs.shape[0], stitch_indices_full)
-        # pointcloud_and_stitch_visualize(pcs, stitch_indices_full.detach().cpu().numpy(), title=f"predict stitch(threshold={pc_stitch_threshold}) in all points")
+    # 仅取上三角部分 ===
+    if only_triu:
+        mask = stitch_indices_full[:, 0] > stitch_indices_full[:, 1]
+        stitch_indices_full[mask] = stitch_indices_full[mask][:, [1, 0]]
 
-    # 如果缝合关系可传递，则
+    # # 筛除不连续的缝合 ===
+    # """
+    # 以下几种缝合会被删除：
+    #     1. 缝合点的左右相邻点都无缝合对线
+    #     2. 缝合点左右相邻点都有相同的缝合对线，且与本点的缝合对象不同
+    # """
+    # if filter_uncontinue:
+    #     # pointcloud_and_stitch_visualize(pcs, stitch_indices_full.detach().cpu().numpy(),
+    #     #             title=f"predict stitch(threshold={pc_stitch_threshold}) in all points")
+    #     piece_id = batch["piece_id"][0]
+    #     # 创建完整序号范围
+    #     full_ids = torch.arange(0, len(piece_id))
+    #     # 现有序号集合
+    #     existing_ids = set(stitch_indices_full[:, 0].tolist())
+    #     # 找缺失的序号
+    #     missing_ids = [i for i in full_ids.tolist() if i not in existing_ids]
+    #     existing_ids = torch.tensor(list(existing_ids))
+    #     # 构造缺失行 [id, -1]
+    #     missing_rows = torch.tensor([[i, -1] for i in missing_ids]).to(pcs.device)
+    #     # 合并原数据和缺失数据
+    #     stitch_indices_full_all_pts = torch.cat([stitch_indices_full, missing_rows], dim=0)
+    #     # 按序号排序
+    #     stitch_indices_full_all_pts = stitch_indices_full_all_pts[stitch_indices_full_all_pts[:, 0].argsort()]
+    #
+    #     # 检查算法是否正常运行
+    #     assert torch.sum(stitch_indices_full_all_pts[missing_ids][:,1]!=-1)==0
+    #     assert torch.sum(stitch_indices_full_all_pts[existing_ids][:, 1] == -1) == 0
+    #
+    #     # 所有点的，被缝合对线所在的板片ID（无对象则-1）
+    #     piece_id_cor = piece_id[stitch_indices_full_all_pts[:,1]]
+    #     piece_id_cor[missing_ids] = -1
+    #
+    #     filter_mask_list = []
+    #     for idx in range(torch.max(piece_id)+1):
+    #         piece_mask = piece_id==idx
+    #         panel_piece_id = piece_id[piece_mask]
+    #         panel_piece_id_cor = piece_id_cor[piece_mask]
+    #
+    #         N = panel_piece_id_cor.shape[0]
+    #         piece_valid_mask = torch.ones(N, dtype=torch.bool, device=pcs.device)
+    #         piece_valid_mask[panel_piece_id_cor == -1] = False
+    #
+    #         # 条件 2：左右两边数值相同且与当前点不同
+    #         # 循环数据：左边索引为 (i-1) % N，右边索引为 (i+1) % N
+    #         left = panel_piece_id_cor[torch.roll(torch.arange(N), shifts=-1)]
+    #         left_2 = panel_piece_id_cor[torch.roll(torch.arange(N), shifts=-2)]
+    #         right = panel_piece_id_cor[torch.roll(torch.arange(N), shifts=1)]
+    #         right_2 = panel_piece_id_cor[torch.roll(torch.arange(N), shifts=2)]
+    #         current = panel_piece_id_cor
+    #
+    #         # 左右相等且与当前点不同的位置
+    #         condition = (left == right) & (left != current)
+    #         piece_valid_mask[condition] = False
+    #
+    #         # 情况 2：右边两个点都是 -1，且左边两个点都与当前点不同
+    #         right_minus_one = (right == -1) & (right_2 == -1)
+    #         left_different = (left != current) & (left_2 != current)
+    #         condition = right_minus_one & left_different
+    #         piece_valid_mask[condition] = False
+    #         # 情况 3：左边两个点都是 -1，且右边两个点都与当前点不同
+    #         left_minus_one = (left == -1) & (left_2 == -1)
+    #         right_different = (right != current) & (right_2 != current)
+    #         condition = left_minus_one & right_different
+    #         piece_valid_mask[condition] = False
+    #
+    #         filter_mask_list.append(piece_valid_mask)
+    #
+    #     filter_mask = torch.cat(filter_mask_list)
+    #
+    #     stitch_indices_full = stitch_indices_full_all_pts[filter_mask]
+    #     stitch_mat_full = stitch_indices2mat(pcs.shape[0], stitch_indices_full)
+    #     # todo ，处理 logits
 
+    # 可视化，测试用 ===
     if show_stitch:
         pointcloud_and_stitch_logits_visualize(pcs, stitch_indices_full.detach().cpu().numpy(), logits,
                                                title=f"predict stitch(threshold={pc_stitch_threshold}) in all points", )
-
-    # # export data
-    # if export_vis_result:
-    #     # 按panel的点的旋转视频
-    #     num_parts = batch["num_parts"].item()
-    #     piece_id = batch["piece_id"].squeeze(0).detach().cpu().numpy()
-    #     part_masks = [piece_id == part_idx for part_idx in range(num_parts)]
-    #     pcs_parts = [pcs[msk] for msk in part_masks]
-    #
-    #     # 提取的边缘点的旋转视频
-    #     pointcloud_visualize(pcs_parts, colormap='coolwarm', colornum=len(pcs_parts), color_norm= [0, len(pcs_parts)],
-    #                          export_data_config=get_export_config(os.path.join("_tmp/point_cloud_vis",f"{data_id}".zfill(5)), pic_num=vid_len))
-    #     # 点分类的旋转视频
-    #     pointcloud_visualize([stitch_pcs, unstitch_pcs], colormap='bwr', colornum=2,color_norm=[0,1],
-    #                          export_data_config=get_export_config(os.path.join("_tmp/point_cloud_cls_vis",f"{data_id}".zfill(5)), pic_num=vid_len))
-    #     # 缝合的旋转视频
-    #     pointcloud_and_stitch_logits_visualize([stitch_pcs, unstitch_pcs],
-    #                         stitch_indices, logits, colormap='bwr', colornum=2,color_norm=[0,1],
-    #                         title=f"predict pcs classify",
-    #                         export_data_config=get_export_config(os.path.join("_tmp/PC_and_stitch_vis",f"{data_id}".zfill(5)), pic_num=vid_len))
-    #
-    #
-    #     import json
-    #     with open(batch['annotations_json_path'][0], "r", encoding="utf-8") as f:
-    #         ann = json.load(f)
-    #         edge_approx = ann["edge_approx"]
-    #         contour_nes = ann['contour_nes']
-    #     n_pcs = batch["n_pcs"][0]
-    #
-    #     vertices_list = []
-    #     edge_list = []
-    #     n_pcs_cumsum = torch.cumsum(n_pcs[:num_parts], dim=-1)
-    #     contour_nes_cumsum = torch.cumsum(torch.Tensor(contour_nes), dim=-1, dtype=torch.int64)
-    #     for contour_idx in range(num_parts):
-    #         if contour_idx==0:
-    #             pcs_start = 0
-    #             edge_start = 0
-    #         else:
-    #             pcs_start = n_pcs_cumsum[contour_idx-1]
-    #             edge_start = contour_nes_cumsum[contour_idx-1]
-    #         pcs_end = n_pcs_cumsum[contour_idx]
-    #         edge_end = contour_nes_cumsum[contour_idx]
-    #         vertices_list.append(pcs[pcs_start:pcs_end])
-    #         edge_list.append(edge_approx[edge_start:edge_end])
-    #
-    #     pointcloud_and_edge_visualize(vertices_list, edge_list, contour_nes,
-    #                                    title=f"",
-    #                                    export_data_config=get_export_config(os.path.join("_tmp/PC_and_approx_vis", f"{data_id}".zfill(5)), pic_num=vid_len))
-
 
     stitch_mat_full.to(pcs.device)
     stitch_indices_full = torch.tensor(stitch_indices_full, device=pcs.device, dtype=torch.int64)

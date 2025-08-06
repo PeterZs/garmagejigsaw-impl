@@ -16,6 +16,7 @@ if __name__ == "__main__":
     args = parse_args("Jigsaw")
 
     model = build_model(cfg).load_from_checkpoint(cfg.WEIGHT_FILE).cuda()
+    model.eval()
     # 一些超参数从cfg文件中获得，不用ckpt中的
     model.pc_cls_threshold = cfg.MODEL.PC_CLS_THRESHOLD
     test_loader = build_stylexd_dataloader_inference(cfg)

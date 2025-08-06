@@ -159,7 +159,7 @@ def _merge_a_into_b(a, b):
             # elif type(b[k]) is list:
             #     v = [v]
             else:
-                if k not in ["CLASS"]:
+                if k not in ["CLASS", "RANDOM_SAMPLE_NUM"]:
                     raise ValueError(
                         "Type mismatch ({} vs. {}) for config key: {}".format(
                             type(b[k]), type(v), k

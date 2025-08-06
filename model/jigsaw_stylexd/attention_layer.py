@@ -115,7 +115,25 @@ class CrossAttentionLayer(nn.Module):
         return dx
 
 
-class LayerNorm1d(nn.BatchNorm1d):
+def get_norm(norm_type, dim):
+    if norm_type == "batch":
+        return nn.BatchNorm1d(dim)
+    elif norm_type == "instance":
+        return nn.InstanceNorm1d(dim)
+    else:
+        raise ValueError(f"Unsupported norm type: {norm_type}")
+
+
+class InstanceNorm1d(nn.BatchNorm1d):
+    def forward(self, input: Tensor) -> Tensor:
+        return (
+            super()
+            .forward(input.transpose(1, 2).contiguous())
+            .transpose(1, 2)
+            .contiguous()
+        )
+
+class BatchNorm1d(nn.BatchNorm1d):
     def forward(self, input: Tensor) -> Tensor:
         return (
             super()
@@ -173,15 +191,15 @@ class PointTransformerLayer(nn.Module):
         self.linear_v = nn.Linear(in_feat, out_feat)
         self.linear_p = nn.Sequential(
             nn.Linear(3, 3),
-            LayerNorm1d(3),
+            BatchNorm1d(3),
             nn.ReLU(inplace=True),
             nn.Linear(3, out_feat),
         )
         self.linear_w = nn.Sequential(
-            LayerNorm1d(mid_feat),
+            BatchNorm1d(mid_feat),
             nn.ReLU(inplace=True),
             nn.Linear(mid_feat, out_feat // n_heads),
-            LayerNorm1d(out_feat // n_heads),
+            BatchNorm1d(out_feat // n_heads),
             nn.ReLU(inplace=True),
             nn.Linear(out_feat // n_heads, out_feat // n_heads),
         )
@@ -278,6 +296,7 @@ class PointTransformerBlock(nn.Module):
                 features = self.tf_layer(features)
             else:
                 a=1
+                raise NotImplementedError
         features = self.relu(self.bn2(features.transpose(1, 2)).transpose(1, 2))
         features = self.bn3(self.linear3(features).transpose(1, 2)).transpose(1, 2)
 
