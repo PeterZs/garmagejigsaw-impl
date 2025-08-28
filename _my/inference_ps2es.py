@@ -1,24 +1,67 @@
 # first inference point stitch，then obtain edge stitch
-import torch
-from tqdm import tqdm
+
 import time
+import random
 import os.path
+from tqdm import tqdm
+
+import torch
+from torch import nn
 import numpy as np
+
 from model import build_model
 from dataset import build_stylexd_dataloader_inference
-
 from utils import  (
     to_device,
     get_pointstitch,
-    pointstitch_2_edgestitch,
-    pointstitch_2_edgestitch2,
-    pointstitch_2_edgestitch3,
+    # pointstitch_2_edgestitch,
+    # pointstitch_2_edgestitch2,
+    # pointstitch_2_edgestitch3,
     pointstitch_2_edgestitch4,
     export_video_results)
 from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcloud_and_stitch_logits_visualize, composite_visualize
 from utils.inference.save_result import save_result
 
+UPDATE_DIS_ITER = 0
+ADD_NOISE_INFERENCE = True
+NBOISE_STRENGTH = 6
+def add_noise_inference(batch, noise_strength=3):
+    if ADD_NOISE_INFERENCE:
+        # def smooth_using_convolution(noise, k=3):
+        #     k = [1] * k
+        #     kernel = np.array(k) / sum(k)  # 平滑卷积核
+        #     smoothed_noise = convolve1d(noise, kernel, axis=0, mode='nearest')
+        #     return smoothed_noise
+        print("Warning: add noise on infeerence pcs")
+        stitch_noise_strength3 = noise_strength
+        noise3 = (np.random.rand(*(batch["pcs"].shape)) * 2. - 1.)
+        # for _ in range(1): noise3 = smooth_using_convolution(noise3, k=3)
+        noise3 = noise3 / (np.linalg.norm(noise3, axis=1, keepdims=True) + 1e-6)
+        noise3 = noise3 * stitch_noise_strength3 * 0.0072
+        noise3 = torch.from_numpy(noise3).float().to(batch["pcs"].device)
+        batch["pcs_before_add_noise_inference"] = batch["pcs"].clone()
+        batch["pcs"] += noise3
+
+def remove_noise_inference(batch):
+    if ADD_NOISE_INFERENCE:
+        batch["pcs"] = batch["pcs_before_add_noise_inference"]
+        del batch["pcs_before_add_noise_inference"]
+
+
 if __name__ == "__main__":
+
+    # set random seed ===
+    def set_seed(seed: int = 42):
+        random.seed(seed)  # Python 内置 random
+        np.random.seed(seed)  # NumPy
+        torch.manual_seed(seed)  # CPU 上的 torch
+        torch.cuda.manual_seed(seed)  # 当前 GPU
+        torch.cuda.manual_seed_all(seed)  # 所有 GPU（如果使用多卡）
+
+        torch.backends.cudnn.deterministic = True  # 确保每次返回的卷积结果一致
+        torch.backends.cudnn.benchmark = False  # 避免 cuDNN 使用非确定性算法
+    set_seed(seed = 42)
+
     data_type = "Garmage256"
     if not data_type in [
         "Garmage64",
@@ -42,6 +85,11 @@ if __name__ == "__main__":
     # TEST 找内鬼 ===
     # model.train()
     model.eval()
+    for m in model.modules():
+        if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+            m.train()  # 这样 BN 使用 batch 统计量
+            m.weight.requires_grad_(False)
+            m.bias.requires_grad_(False)
     # model.pc_encoder.eval()
     # model.uv_encoder.eval()
     # try:    model.feature_conv.eval()
@@ -71,8 +119,22 @@ if __name__ == "__main__":
         if batch["pcs"].shape[-2]>3000:
             print("num point too mach, continue...")
             continue
+
+        # [test] add noise on infeerence pcs
+        add_noise_inference(batch, noise_strength=NBOISE_STRENGTH)
+
+        if UPDATE_DIS_ITER>0:
+            model.train()
+            for i in range(UPDATE_DIS_ITER):
+                inf_rst = model(batch)
+            model.eval()
+
         with torch.no_grad():
             inf_rst = model(batch)
+
+        # [test] add noise on infeerence pcs
+        remove_noise_inference(batch)
+
         if data_type == "Garmage256":
             try:
                 data_id = int(os.path.basename(batch['mesh_file_path'][0]).split("_")[1])
@@ -80,10 +142,9 @@ if __name__ == "__main__":
                 data_id = idx
             g_basename = os.path.basename(batch['mesh_file_path'][0])
         else: data_id=int(batch['data_id'])
-        # [test]
-        if not data_id==1:
-            continue
-
+        # # [test]
+        # if not data_id==1:
+        #     continue
         # 获取并优化点点缝合关系 ------------------------------------------------------------------------------------------------
         # if data_type == "Garmage64":
         #     stitch_mat_full, stitch_indices_full, logits = (
@@ -103,14 +164,21 @@ if __name__ == "__main__":
         #                         filter_too_small=True, filter_logits=0.05,
         #                         only_triu=True, filter_uncontinue=False,
         #                         show_pc_cls=False, show_stitch=False, export_vis_result = False))
-
+        pass
+        # 一个还算不错的配置 ===
+        # edgestitch_results = pointstitch_2_edgestitch4(batch, inf_rst,
+        #                                                stitch_mat_full, stitch_indices_full,
+        #                                                unstitch_thresh=12, fliter_len=3, division_thresh = 1000,
+        #                                                optimize_thresh_neighbor_index_dis=10,
+        #                                                optimize_thresh_side_index_dis=30,
+        #                                                auto_adjust=False)
         # optimize point-point stitch
         if data_type == "Garmage256":
             stitch_mat_full, stitch_pcs, unstitch_pcs, stitch_indices, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
                                 sym_choice="", mat_choice="col_max",
                                 filter_neighbor_stitch=True, filter_neighbor = 1,
-                                filter_too_long=True, filter_length=0.15,
+                                filter_too_long=True, filter_length=0.12,
                                 filter_too_small=True, filter_logits=0.11,
                                 only_triu=True, filter_uncontinue=True,
                                 show_pc_cls=False, show_stitch=False))
@@ -187,13 +255,19 @@ if __name__ == "__main__":
         #                                                optimize_thresh_side_index_dis=6,
         #                                                auto_adjust=False)
 
+        # edgestitch_results = pointstitch_2_edgestitch4(batch, inf_rst,
+        #                                                stitch_mat_full, stitch_indices_full,
+        #                                                unstitch_thresh=12, fliter_len=2, division_thresh = 3,
+        #                                                optimize_thresh_neighbor_index_dis=12,
+        #                                                optimize_thresh_side_index_dis=15,
+        #                                                auto_adjust=False)
+
         edgestitch_results = pointstitch_2_edgestitch4(batch, inf_rst,
                                                        stitch_mat_full, stitch_indices_full,
-                                                       unstitch_thresh=12, fliter_len=2, division_thresh = 3,
-                                                       optimize_thresh_neighbor_index_dis=12,
-                                                       optimize_thresh_side_index_dis=15,
+                                                       unstitch_thresh=12, fliter_len=3, division_thresh = 3,
+                                                       optimize_thresh_neighbor_index_dis=6,
+                                                       optimize_thresh_side_index_dis=3,
                                                        auto_adjust=False)
-
         garment_json = edgestitch_results["garment_json"]
 
         # 保存可视化结果 ---------------------------------------------------------------------------------------------------

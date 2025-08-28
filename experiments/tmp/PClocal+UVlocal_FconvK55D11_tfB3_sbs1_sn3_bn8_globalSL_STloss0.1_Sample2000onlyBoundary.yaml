@@ -9,7 +9,7 @@ PROJECT: jigsaw
 
 DATASET: stylexd.all_piece_matching
 
-WEIGHT_FILE: results/PClocal+UVlocal_FconvK55D11_tfB3_sbs1_sn3_bn8_globalSL_STloss0.1_Sample2000onlyBoundary/model_save/model_epoch=199.ckpt
+WEIGHT_FILE: results/jigsaw_StyleXD/model_save/last-v6.ckpt
 
 RESUME: true
 WANDB:
@@ -20,8 +20,8 @@ BATCH_SIZE: 8
 NUM_WORKERS: 8
 
 TRAIN:
-  NUM_EPOCHS: 200
-  LR: 0.00004
+  NUM_EPOCHS: 50
+  LR: 0.000013
   WEIGHT_DECAY: 0.
   WARMUP_RATIO: 0.
   LR_SCHEDULER: 'cosine' # [notice] 恢复训练时不开这个

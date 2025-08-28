@@ -12,9 +12,9 @@ RESUME: false
 WANDB:
   ID: gammtewg
 
-GPUS: [0, 1]
-BATCH_SIZE: 6
-NUM_WORKERS: 5
+GPUS: [0]
+BATCH_SIZE: 10
+NUM_WORKERS: 8
 
 TRAIN:
   NUM_EPOCHS: 200
@@ -55,9 +55,9 @@ MODEL:
     NORM: "batch"
 
   POINTCLASSIFIER:
-    NORM: "batch"
+    NORM: "instance"
   STITCHPREDICTOR:
-    NORM: "batch"
+    NORM: "instance"
 
   IS_TRAIN_IN_STAGE: False  # 是否分阶段训练
   TRAIN_IN_STAGE:
@@ -116,7 +116,7 @@ DATA:
   PCS_NOISE_TYPE: default  # default  normal
   PCS_NOISE_STRENGTH: 0.0
   USE_STITCH_NOISE: True  # 是否沿着缝合线加噪（仅训练）
-  STITCH_NOISE_STRENGTH: 12.
+  STITCH_NOISE_STRENGTH: 3.
   STITCH_NOISE_RANDOM_RANGE: [-1.0, 1.]  # [-1., 1.]
 
   PANEL_NOISE_TYPE:  # 在Panel上加噪声的类型

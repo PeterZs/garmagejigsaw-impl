@@ -11,9 +11,37 @@ import numpy as np
 from model import build_model
 from dataset import build_stylexd_dataloader_inference
 
-from utils import  to_device, get_pointstitch, pointstitch_2_edgestitch, pointstitch_2_edgestitch2, pointstitch_2_edgestitch3, export_video_results
+from utils import  to_device, get_pointstitch, pointstitch_2_edgestitch, pointstitch_2_edgestitch2, pointstitch_2_edgestitch3, pointstitch_2_edgestitch4, export_video_results
 from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcloud_and_stitch_logits_visualize, composite_visualize
 from utils.inference.save_result import save_result
+
+from scipy.ndimage import convolve1d
+
+UPDATE_DIS_ITER = 0
+ADD_NOISE_INFERENCE = True
+NBOISE_STRENGTH = 6
+def add_noise_inference(batch, noise_strength=3):
+    if ADD_NOISE_INFERENCE:
+        # def smooth_using_convolution(noise, k=3):
+        #     k = [1] * k
+        #     kernel = np.array(k) / sum(k)  # 平滑卷积核
+        #     smoothed_noise = convolve1d(noise, kernel, axis=0, mode='nearest')
+        #     return smoothed_noise
+        print("Warning: add noise on infeerence pcs")
+        stitch_noise_strength3 = noise_strength
+        noise3 = (np.random.rand(*(batch["pcs"].shape)) * 2. - 1.)
+        # for _ in range(1): noise3 = smooth_using_convolution(noise3, k=3)
+        noise3 = noise3 / (np.linalg.norm(noise3, axis=1, keepdims=True) + 1e-6)
+        noise3 = noise3 * stitch_noise_strength3 * 0.0072
+        noise3 = torch.from_numpy(noise3).float().to(batch["pcs"].device)
+        batch["pcs_before_add_noise_inference"] = batch["pcs"].clone()
+        batch["pcs"] += noise3
+
+def remove_noise_inference(batch):
+    if ADD_NOISE_INFERENCE:
+        batch["pcs"] = batch["pcs_before_add_noise_inference"]
+        del batch["pcs_before_add_noise_inference"]
+
 
 if __name__ == "__main__":
     data_type = "Garmage256"
@@ -40,44 +68,21 @@ if __name__ == "__main__":
     export_vis_result = False
     export_vis_source = True
 
-
-
     # Warm UP ===
-    # warmup_cache_dir = "_my/feature_mean_var_testing/inference_but_new_mean_var/output"
-    # warmuped_ckpt_fp = os.path.join(warmup_cache_dir, f"warmup.ckpt")
-    # if os.path.exists(warmuped_ckpt_fp):
-    #     model.load_state_dict(torch.load(warmuped_ckpt_fp))
-
     inference_loader = build_stylexd_dataloader_inference(cfg)
 
     model.train()
-    for i in range(10):
-        diff_mean_list = []
-        diff_var_list = []
+    for i in range(UPDATE_DIS_ITER):
         for idx, batch in tqdm(enumerate(inference_loader)):
             batch = to_device(batch, model.device)
 
-            # running_mean_before = model.pc_classifier_layer[0].running_mean.clone()
-            # running_var_before = model.pc_classifier_layer[0].running_var.clone()
+            # [test] add noise on infeerence pcs
+            add_noise_inference(batch, noise_strength=NBOISE_STRENGTH)
 
             with torch.no_grad():
                 inf_rst = model(batch)
 
-            # running_mean_after = model.pc_classifier_layer[0].running_mean.clone()
-            # running_var_after = model.pc_classifier_layer[0].running_var.clone()
-
-            # # print(torch.abs(a - b).sum())
-            # diff_mean = torch.abs(running_mean_before - running_mean_after).sum()
-            # diff_var = torch.abs(running_var_before - running_var_after).sum()
-            # diff_mean_list.append(diff_mean)
-            # diff_var_list.append(diff_var)
-
             torch.cuda.empty_cache()
-        # mean_diff_mean = sum(diff_mean_list) / len(diff_mean_list)
-        # mean_diff_var = sum(diff_var_list) / len(diff_var_list)
-        # print(f"mean diff mean: {mean_diff_mean}")
-        # print(f"mean diff var: {mean_diff_var}")
-        # torch.save(model.state_dict(), warmuped_ckpt_fp)
 
     # Inference ===
     inference_loader = build_stylexd_dataloader_inference(cfg)
@@ -86,11 +91,20 @@ if __name__ == "__main__":
         batch = to_device(batch, model.device)
 
         # 检查是否存在太大的
-        if batch["pcs"].shape[-2]>3000:
+        if batch["pcs"].shape[-2]>5000:
             print("num point too mach, continue...")
             continue
+
+
+        # [test] add noise on infeerence pcs
+        add_noise_inference(batch, noise_strength=NBOISE_STRENGTH)
+
         with torch.no_grad():
             inf_rst = model(batch)
+
+        # [test] add noise on infeerence pcs
+        remove_noise_inference(batch)
+
         if data_type == "Garmage256":
             try:
                 data_id = int(os.path.basename(batch['mesh_file_path'][0]).split("_")[1])
@@ -99,14 +113,15 @@ if __name__ == "__main__":
             g_basename = os.path.basename(batch['mesh_file_path'][0])
         else: data_id=int(batch['data_id'])
 
+
         # 获取点点缝合关系 ------------------------------------------------------------------------------------------------
         if data_type == "Garmage256":
             stitch_mat_full, stitch_pcs, unstitch_pcs, stitch_indices, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
-                                sym_choice="", mat_choice="col_max",
-                                filter_neighbor_stitch=True, filter_neighbor = 1,
+                                sym_choice="", mat_choice="hun",
+                                filter_neighbor_stitch=True, filter_neighbor = 2,
                                 filter_too_long=True, filter_length=0.15,
-                                filter_too_small=True, filter_logits=0.11,
+                                filter_too_small=True, filter_logits=0.2,
                                 only_triu=True, filter_uncontinue=True,
                                 show_pc_cls=False, show_stitch=False))
         else:
@@ -140,11 +155,11 @@ if __name__ == "__main__":
 
         # 从点点缝合关系获取边边缝合关系 -------------------------------------------------------------------------------------
         batch = to_device(batch, "cpu")
-        edgestitch_results = pointstitch_2_edgestitch3(batch, inf_rst,
+        edgestitch_results = pointstitch_2_edgestitch4(batch, inf_rst,
                                                        stitch_mat_full, stitch_indices_full,
-                                                       unstitch_thresh=12, fliter_len=3, division_thresh = 12,
-                                                       optimize_thresh_neighbor_index_dis=12,
-                                                       optimize_thresh_side_index_dis=3,
+                                                       unstitch_thresh=12, fliter_len=2, division_thresh = 5,
+                                                       optimize_thresh_neighbor_index_dis=6,
+                                                       optimize_thresh_side_index_dis=12,
                                                        auto_adjust=False)
 
         garment_json = edgestitch_results["garment_json"]

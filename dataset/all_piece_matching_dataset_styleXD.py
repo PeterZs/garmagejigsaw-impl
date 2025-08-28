@@ -1,30 +1,26 @@
+
+import os
 import json
 import math
-import os
 import random
 from copy import copy
 from glob import glob
 
-
-import numpy as np
 import torch
-
-
+import numpy as np
 import igl
 import trimesh
 import trimesh.sample
 
-# import diffusers.schedulers
 from diffusers import DDPMScheduler
-# from diffusers.schedulers import DDPMScheduler
 
 from scipy.spatial.transform import Rotation as R
 from torch.utils.data import Dataset, DataLoader
 from scipy.ndimage import convolve1d
 
-from utils import get_sphere_noise, min_max_normalize, styleXD_normalize, get_pc_bbox, compute_adjacency_list
-from utils import meshes_visualize, stitch_visualize, pointcloud_visualize, pointcloud_and_stitch_visualize
-from utils import LatinHypercubeSample, balancedSample, random_point_in_convex_hull
+from utils import min_max_normalize, styleXD_normalize, get_pc_bbox  # , compute_adjacency_list
+# from utils import meshes_visualize, stitch_visualize, pointcloud_visualize, pointcloud_and_stitch_visualize
+from utils import balancedSample #  , LatinHypercubeSample, random_point_in_convex_hull
 from utils import stitch_mat2indices, stitch_indices2mat, stitch_indices_order, stitch_mat_order, cal_mean_edge_len
 
 
@@ -93,6 +89,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         self.category = category if category.lower() != "all" else ""
 
         self.num_points = num_points
+        # [todo] 随机采样点数量
         self.random_sample_num = random_sample_num
 
         self.min_num_part = min_num_part
@@ -263,14 +260,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         else:
             pc_new = pc
         return pc_new
-
-    def _shuffle_pc(self, pc, pc_gt):
-        """pc: [N, 3]"""
-        order_indices = np.arange(pc.shape[0])
-        random.shuffle(order_indices)
-        pc = pc[order_indices]
-        pc_gt = pc_gt[order_indices]
-        return pc, pc_gt, order_indices
 
     def _pad_data(self, data, pad_size=None, pad_num=0):
         """Pad data to shape [`self.max_num_part`, data.shape[1], ...]."""
@@ -635,110 +624,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         pcs_dict["normal"] = sampled_normals
         return pcs_dict
 
-    # 在mesh的顶点上添加噪声(暂不使用)
-    def add_noise_on_mesh(self, meshes, noise_strength=2):
-        for mesh in meshes:
-            # 计算平均边长
-            edges = np.array(mesh.edges)
-            v_el = np.array(mesh.vertices)[np.concatenate(edges,axis=0)[0::2]]
-            v_er = np.array(mesh.vertices)[np.concatenate(edges,axis=0)[1::2]]
-            mean_edge_len = np.mean(np.sqrt(np.sum((v_el - v_er) ** 2, axis=1)))
-
-            # 噪声的基数
-            noise_base = noise_strength * mean_edge_len
-
-            v_n =  mesh.vertex_normals
-            V1 = np.zeros_like(v_n)
-            V2 = np.zeros_like(v_n)
-
-            for i in range(v_n.shape[0]):
-                vec = v_n[i]
-
-                # Normalize the input vector
-                vec = vec / np.linalg.norm(vec)
-
-                # Find the first orthogonal vector
-                if vec[0] != 0 or vec[1] != 0:
-                    V1[i] = np.array([-vec[1], vec[0], 0])
-                else:
-                    V1[i] = np.array([1, 0, 0])
-
-                # Find the second orthogonal vector using cross product
-                V2[i] = np.cross(vec, V1[i])
-
-            V1 = np.array(V1) / np.linalg.norm(V1)
-            V2 = np.array(V2) / np.linalg.norm(V2)
-
-            # Initialize an array to store points
-            points_offset = np.zeros((V1.shape[0], 3))
-
-            angle = np.random.uniform(0, 2 * np.pi, V1.shape[0])
-            r = np.sqrt(np.random.uniform(0, noise_base ** 2, V1.shape[0]))
-            x = np.tile((r * np.cos(angle))[:, np.newaxis], (1, 3))
-            y = np.tile((r * np.sin(angle))[:, np.newaxis], (1, 3))
-            points_offset = x * V1 + y * V2
-
-            mesh.vertices = mesh.vertices + points_offset
-        return
-
-    def add_noise_on_pcs(self, pcs, meshes, piece_id,mean_edge_len, noise_strength=50, noise_type="default", fid=None):
-        # 噪声基数
-        noise_base = noise_strength * mean_edge_len
-
-        # 最简单的加噪方式
-        if noise_type == "default":
-            results_pcs = []
-            for pc in pcs:
-                pc = pc + get_sphere_noise(len(pc), noise_base)
-                results_pcs.append(np.array(pc))
-            return results_pcs
-        # 根据法线进行加噪的方式
-        elif noise_type == "normal":
-            # 对每个顶点，获取它所在面的法线
-            v_n = np.concatenate(np.array([np.array(mesh.face_normals[fid[i]]) for i, mesh in enumerate(meshes)]),
-                                 axis=0)
-
-            V1 = np.zeros_like(v_n)
-            V2 = np.zeros_like(v_n)
-
-            for i in range(v_n.shape[0]):
-                vec = v_n[i]
-
-                # Normalize the input vector
-                vec = vec / np.linalg.norm(vec)
-
-                # Find the first orthogonal vector
-                if vec[0] != 0 or vec[1] != 0:
-                    V1[i] = np.array([-vec[1], vec[0], 0])
-                else:
-                    V1[i] = np.array([1, 0, 0])
-
-                # Find the second orthogonal vector using cross product
-                V2[i] = np.cross(vec, V1[i])
-
-            V1 = np.array(V1) / np.linalg.norm(V1)
-            V2 = np.array(V2) / np.linalg.norm(V2)
-
-            # Initialize an array to store points
-            points_offset = np.zeros((V1.shape[0], 3))
-
-            angle = np.random.uniform(0, 2 * np.pi, V1.shape[0])
-            r = np.sqrt(np.random.uniform(0, noise_base ** 2, V1.shape[0]))
-            x = np.tile((r * np.cos(angle))[:, np.newaxis], (1, 3))
-            y = np.tile((r * np.sin(angle))[:, np.newaxis], (1, 3))
-            points_offset = x * V1 + y * V2
-
-            sum = 0
-            results_pcs = []
-            for pc in pcs:
-                pc = pc + points_offset[sum:sum + len(pc)]
-                sum += len(pc)
-                results_pcs.append(np.array(pc))
-
-            return results_pcs
-        else:
-            raise ValueError(f"noise_type \"{noise_type}\" is not valid.")
-
     def load_meshes(self, data_folder):
         mesh_files = sorted(glob(os.path.join(data_folder, "piece_*.obj")))
 
@@ -1085,6 +970,10 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         return data_dict
 
 def build_stylexd_dataloader_train_val(cfg, shuffle_val_loader=False):
+    if cfg.NUM_WORKERS > 4:
+        print("Too much workers may cause segment fault.")
+
+
     # train、val用的是StyleXD带l的obj文件，用stitch采样
     # TRAIN DATASET ----------------------------------------------------------------------------------------------------
     data_dict = dict(

@@ -1,5 +1,6 @@
 
 import torch
+from pytorch_lightning.utilities.types import EPOCH_OUTPUT
 from torch import optim
 import pytorch_lightning
 
@@ -31,6 +32,9 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
         )
         return loss_dict['loss']  # 这个被拿去计算梯度
 
+    def training_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
+        torch.cuda.empty_cache()
+
     def validation_step(self, data_dict, batch_idx):
         loss_dict = self.forward_pass(data_dict, mode='val', optimizer_idx=-1)
         return loss_dict
@@ -52,6 +56,7 @@ class MatchingBaseModel(pytorch_lightning.LightningModule):
             for k, v in losses.items()
         }
         self.log_dict(avg_loss, sync_dist=True)
+        torch.cuda.empty_cache()
 
     def test_step(self, data_dict, batch_idx):
         torch.cuda.synchronize()

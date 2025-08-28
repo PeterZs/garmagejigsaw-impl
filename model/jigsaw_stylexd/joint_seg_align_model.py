@@ -1,3 +1,4 @@
+import warnings
 from copy import deepcopy
 
 import torch
@@ -5,7 +6,6 @@ import numpy as np
 from torch import nn
 import torch.nn.functional as F
 from torch.nn import BCELoss
-import warnings
 
 from model import MatchingBaseModel, build_encoder
 from .affinity_layer import build_affinity
@@ -15,10 +15,10 @@ from .feature_conv_layer import feature_conv_layer_contourwise
 
 from utils import permutation_loss
 from utils import get_batch_length_from_part_points, merge_c2p_byPanelIns  # , is_contour_OutLine
-from utils import pointcloud_visualize, pointcloud_and_stitch_visualize
-from utils import Sinkhorn, hungarian, stitch_indices2mat, stitch_mat2indices, get_pointstitch
-from sklearn.metrics import f1_score
-from concurrent.futures import ThreadPoolExecutor
+# from utils import pointcloud_visualize, pointcloud_and_stitch_visualize
+from utils import Sinkhorn  # , hungarian, stitch_indices2mat, stitch_mat2indices, get_pointstitch
+# from sklearn.metrics import f1_score
+# from concurrent.futures import ThreadPoolExecutor
 
 
 class JointSegmentationAlignmentModel(MatchingBaseModel):
@@ -353,6 +353,8 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             for b in range(B_size):
                 n_parts = num_parts[b]
                 n_pcs_part = n_pcs[b][:n_parts]
+                # [test]
+                # print(n_pcs_part)
                 n_pcs_part_cumsum = torch.cumsum(n_pcs_part, dim=-1)
 
                 features_b = []
@@ -608,147 +610,146 @@ class JointSegmentationAlignmentModel(MatchingBaseModel):
             with torch.no_grad():
                 self.val_ACC_list.append(float(ACC))
 
-        # point-point stitching metrics ------------------------------------------------------------------------
-        with torch.no_grad(), warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-
-            if torch.randint(0, 20, (1,)) == 0: # 避免过多执行，导致训练速度降低
-                data_dict_clone = {k: v.cpu().clone().detach() if isinstance(v, torch.Tensor) else v for k, v in zip(data_dict.keys(), data_dict.values())}
-                out_dict_clone = {k:v.cpu().clone().detach() if isinstance(v, torch.Tensor) else v for k,v in zip(out_dict.keys(),out_dict.values())}
-
-                item_num = data_dict_clone["pcs"].shape[0]
-                for i in range(item_num):
-                    data_dict_c = {k:v[i][None,...] if isinstance(v[i],torch.Tensor) else v[i] for k, v in zip(data_dict_clone.keys(), data_dict_clone.values())}
-                    out_dict_c = {k:v[i][None,...] if isinstance(v[i],torch.Tensor) else v[i] for k, v in zip(out_dict_clone.keys(), out_dict_clone.values())}
-
-                    # stitch_mat_full, _, _, _, stitch_indices_full, logits = (
-                    #     get_pointstitch(data_dict_c,
-                    #                     out_dict_c,
-                    #                     sym_choice="", mat_choice="hun",
-                    #                     filter_neighbor_stitch=False, filter_neighbor=3,
-                    #                     filter_too_long=False, filter_length=0.1,
-                    #                     filter_too_small=True, filter_logits=0.12,
-                    #                     only_triu=False, filter_uncontinue=False,
-                    #                     show_pc_cls=False, show_stitch=False))
-
-                    # get_pointstitch ===
-                    def safe_get_pointstitch(data_dict_c, out_dict_c):
-                        try:
-                            return get_pointstitch(                               data_dict_c, out_dict_c,
-                                sym_choice="", mat_choice="hun",
-                                filter_neighbor_stitch=False, filter_neighbor=3,
-                                filter_too_long=False, filter_length=0.1,
-                                filter_too_small=True, filter_logits=0.12,
-                                only_triu=False, filter_uncontinue=False,
-                                show_pc_cls=False, show_stitch=False
-                            )
-                        except Exception as e:
-                            print("[跳过 get_pointstitch] 异常:", e)
-                            return None, None, None, None, None, None
-
-                    # 定义任务函数
-                    def task(data_dict_c, out_dict_c):
-                        stitch_mat_full, _, _, _, stitch_indices_full, logits = safe_get_pointstitch(data_dict_c, out_dict_c)
-                        return stitch_mat_full, stitch_indices_full, logits
-
-                    data_list = [(data_dict_c, out_dict_c)]
-
-                    results = []
-                    with ThreadPoolExecutor(max_workers=1) as executor:
-                        futures = [executor.submit(task, data_dict_c, out_dict_c) for data_dict_c, out_dict_c in data_list]
-                        for i, future in enumerate(futures):
-                            try:
-                                result = future.result()
-                                results.append(result)
-                            except Exception as e:
-                                print(f"任务{i} 异常:", e)
-                                results.append((None, None, None))
-
-                    stitch_mat_full=results[0][0]
-                    stitch_indices_full=results[0][1]
-                    logits=results[0][2]
-                    if stitch_mat_full is None and stitch_indices_full is None and logits is None:
-                        continue
-
-                    # END get_pointstitch ===
-
-
-                    device = stitch_mat_full.device
-                    mat_gt = data_dict_c["mat_gt"]
-                    mat_gt = mat_gt == 1
-                    pcs = data_dict_c["pcs"].squeeze(0)
-                    normalize_range = data_dict_c['normalize_range']
-
-                    pc_cls = out_dict_c["pc_cls"]
-                    threshold = self.pc_cls_threshold
-                    pc_cls_ = pc_cls.squeeze(-1)
-
-                    point_num = pcs.shape[-2]
-                    if self.cal_mat_loss_sym:
-                        mat_gt = mat_gt + mat_gt.transpose(-1, -2)
-                    stitch_mat_full = stitch_mat_full >= 0.9
-
-                    # === 缝合Recall ===
-                    RECALL_STITCH = torch.sum(torch.bitwise_and(stitch_mat_full == mat_gt, mat_gt)) / torch.sum(mat_gt)
-                    loss_dict.update({
-                        "STITCH_RECALL": RECALL_STITCH,
-                    })
-
-                    # === 缝合 AMD (average mean distance) ===
-                    stitch_indices_pred = stitch_mat2indices(stitch_mat_full)
-                    stitch_indices_gt = stitch_mat2indices(mat_gt)
-                    if stitch_indices_pred.shape[-2]>0:
-                        mask_cls_pred = (pc_cls_ > threshold).squeeze(0)
-                        idx_range = torch.arange(0, point_num, dtype=torch.int64, device=mat_gt.device)
-                        stitch_map = torch.zeros((point_num), dtype=torch.int64).to(device) - 1
-                        stitch_map[stitch_indices_pred[:, 0]] = stitch_indices_pred[:, 1]
-                        stitch_map[stitch_indices_pred[:, 1]] = stitch_indices_pred[:, 0]
-
-                        stitch_map_gt = torch.zeros((point_num), dtype=torch.int64).to(device) - 1
-                        stitch_map_gt[stitch_indices_gt[:, 0]] = stitch_indices_gt[:, 1]
-                        stitch_map_gt[stitch_indices_gt[:, 1]] = stitch_indices_gt[:, 0]
-
-                        stitch_point_idx = idx_range[mask_cls_pred]
-
-                        stitch_cor_pred = stitch_map[stitch_point_idx]
-                        stitch_cor_gt = stitch_map_gt[stitch_point_idx]
-
-                        stitch_pair_valid_mask = torch.bitwise_and(stitch_cor_pred != -1, stitch_cor_gt != -1)
-                        stitch_point_idx_valid = stitch_point_idx[stitch_pair_valid_mask]
-
-                        stitch_cor_pred = stitch_map[stitch_point_idx_valid]
-                        stitch_cor_gt = stitch_map_gt[stitch_point_idx_valid]
-
-                        stitch_cor_position_pred = pcs[stitch_cor_pred]
-                        stitch_cor_position_gt = pcs[stitch_cor_gt]
-
-                        if len(stitch_point_idx_valid)>0:
-                            STITCH_AMD = torch.sum(torch.norm(stitch_cor_position_pred - stitch_cor_position_gt, dim=1)) / len(stitch_point_idx_valid)
-                            STITCH_AMD = STITCH_AMD.reshape(1)
-                            if not torch.isnan(STITCH_AMD):
-                                STITCH_AMD *= normalize_range
-                                loss_dict.update({
-                                    "STITCH_AMD": STITCH_AMD,
-                                })
-
-                    # === 缝合 F1 Score ===
-                        if len(stitch_point_idx_valid)>0:
-                            # 计算 F1
-                            STITCH_F1 = f1_score(
-                                stitch_cor_gt.detach().cpu().numpy(),
-                                stitch_cor_pred.detach().cpu().numpy(),
-                                average='macro'
-                            )
-                            if not np.isnan(STITCH_F1):
-                                loss_dict.update({
-                                    "STITCH_F1": STITCH_F1,
-                                })
+        # # point-point stitching metrics ------------------------------------------------------------------------
+        # with torch.no_grad(), warnings.catch_warnings():
+        #     warnings.simplefilter("ignore")
+        #
+        #     if torch.randint(0, 20, (1,)) == 0: # 避免过多执行，导致训练速度降低
+        #         data_dict_clone = {k: v.cpu().clone().detach() if isinstance(v, torch.Tensor) else v for k, v in zip(data_dict.keys(), data_dict.values())}
+        #         out_dict_clone = {k:v.cpu().clone().detach() if isinstance(v, torch.Tensor) else v for k,v in zip(out_dict.keys(),out_dict.values())}
+        #
+        #         item_num = data_dict_clone["pcs"].shape[0]
+        #         for i in range(item_num):
+        #             data_dict_c = {k:v[i][None,...] if isinstance(v[i],torch.Tensor) else v[i] for k, v in zip(data_dict_clone.keys(), data_dict_clone.values())}
+        #             out_dict_c = {k:v[i][None,...] if isinstance(v[i],torch.Tensor) else v[i] for k, v in zip(out_dict_clone.keys(), out_dict_clone.values())}
+        #
+        #             # stitch_mat_full, _, _, _, stitch_indices_full, logits = (
+        #             #     get_pointstitch(data_dict_c,
+        #             #                     out_dict_c,
+        #             #                     sym_choice="", mat_choice="hun",
+        #             #                     filter_neighbor_stitch=False, filter_neighbor=3,
+        #             #                     filter_too_long=False, filter_length=0.1,
+        #             #                     filter_too_small=True, filter_logits=0.12,
+        #             #                     only_triu=False, filter_uncontinue=False,
+        #             #                     show_pc_cls=False, show_stitch=False))
+        #
+        #             # get_pointstitch ===
+        #             def safe_get_pointstitch(data_dict_c, out_dict_c):
+        #                 try:
+        #                     return get_pointstitch(                               data_dict_c, out_dict_c,
+        #                         sym_choice="", mat_choice="hun",
+        #                         filter_neighbor_stitch=False, filter_neighbor=3,
+        #                         filter_too_long=False, filter_length=0.1,
+        #                         filter_too_small=True, filter_logits=0.12,
+        #                         only_triu=False, filter_uncontinue=False,
+        #                         show_pc_cls=False, show_stitch=False
+        #                     )
+        #                 except Exception as e:
+        #                     print("[跳过 get_pointstitch] 异常:", e)
+        #                     return None, None, None, None, None, None
+        #
+        #             # 定义任务函数
+        #             def task(data_dict_c, out_dict_c):
+        #                 stitch_mat_full, _, _, _, stitch_indices_full, logits = safe_get_pointstitch(data_dict_c, out_dict_c)
+        #                 return stitch_mat_full, stitch_indices_full, logits
+        #
+        #             data_list = [(data_dict_c, out_dict_c)]
+        #
+        #             results = []
+        #             with ThreadPoolExecutor(max_workers=1) as executor:
+        #                 futures = [executor.submit(task, data_dict_c, out_dict_c) for data_dict_c, out_dict_c in data_list]
+        #                 for i, future in enumerate(futures):
+        #                     try:
+        #                         result = future.result()
+        #                         results.append(result)
+        #                     except Exception as e:
+        #                         print(f"任务{i} 异常:", e)
+        #                         results.append((None, None, None))
+        #
+        #             stitch_mat_full=results[0][0]
+        #             stitch_indices_full=results[0][1]
+        #             logits=results[0][2]
+        #             if stitch_mat_full is None and stitch_indices_full is None and logits is None:
+        #                 continue
+        #
+        #             # END get_pointstitch ===
+        #
+        #
+        #             device = stitch_mat_full.device
+        #             mat_gt = data_dict_c["mat_gt"]
+        #             mat_gt = mat_gt == 1
+        #             pcs = data_dict_c["pcs"].squeeze(0)
+        #             normalize_range = data_dict_c['normalize_range']
+        #
+        #             pc_cls = out_dict_c["pc_cls"]
+        #             threshold = self.pc_cls_threshold
+        #             pc_cls_ = pc_cls.squeeze(-1)
+        #
+        #             point_num = pcs.shape[-2]
+        #             if self.cal_mat_loss_sym:
+        #                 mat_gt = mat_gt + mat_gt.transpose(-1, -2)
+        #             stitch_mat_full = stitch_mat_full >= 0.9
+        #
+        #             # === 缝合Recall ===
+        #             RECALL_STITCH = torch.sum(torch.bitwise_and(stitch_mat_full == mat_gt, mat_gt)) / torch.sum(mat_gt)
+        #             loss_dict.update({
+        #                 "STITCH_RECALL": RECALL_STITCH,
+        #             })
+        #
+        #             # === 缝合 AMD (average mean distance) ===
+        #             stitch_indices_pred = stitch_mat2indices(stitch_mat_full)
+        #             stitch_indices_gt = stitch_mat2indices(mat_gt)
+        #             if stitch_indices_pred.shape[-2]>0:
+        #                 mask_cls_pred = (pc_cls_ > threshold).squeeze(0)
+        #                 idx_range = torch.arange(0, point_num, dtype=torch.int64, device=mat_gt.device)
+        #                 stitch_map = torch.zeros((point_num), dtype=torch.int64).to(device) - 1
+        #                 stitch_map[stitch_indices_pred[:, 0]] = stitch_indices_pred[:, 1]
+        #                 stitch_map[stitch_indices_pred[:, 1]] = stitch_indices_pred[:, 0]
+        #
+        #                 stitch_map_gt = torch.zeros((point_num), dtype=torch.int64).to(device) - 1
+        #                 stitch_map_gt[stitch_indices_gt[:, 0]] = stitch_indices_gt[:, 1]
+        #                 stitch_map_gt[stitch_indices_gt[:, 1]] = stitch_indices_gt[:, 0]
+        #
+        #                 stitch_point_idx = idx_range[mask_cls_pred]
+        #
+        #                 stitch_cor_pred = stitch_map[stitch_point_idx]
+        #                 stitch_cor_gt = stitch_map_gt[stitch_point_idx]
+        #
+        #                 stitch_pair_valid_mask = torch.bitwise_and(stitch_cor_pred != -1, stitch_cor_gt != -1)
+        #                 stitch_point_idx_valid = stitch_point_idx[stitch_pair_valid_mask]
+        #
+        #                 stitch_cor_pred = stitch_map[stitch_point_idx_valid]
+        #                 stitch_cor_gt = stitch_map_gt[stitch_point_idx_valid]
+        #
+        #                 stitch_cor_position_pred = pcs[stitch_cor_pred]
+        #                 stitch_cor_position_gt = pcs[stitch_cor_gt]
+        #
+        #                 if len(stitch_point_idx_valid)>0:
+        #                     STITCH_AMD = torch.sum(torch.norm(stitch_cor_position_pred - stitch_cor_position_gt, dim=1)) / len(stitch_point_idx_valid)
+        #                     STITCH_AMD = STITCH_AMD.reshape(1)
+        #                     if not torch.isnan(STITCH_AMD):
+        #                         STITCH_AMD *= normalize_range
+        #                         loss_dict.update({
+        #                             "STITCH_AMD": STITCH_AMD,
+        #                         })
+        #
+        #             # === 缝合 F1 Score ===
+        #                 if len(stitch_point_idx_valid)>0:
+        #                     # 计算 F1
+        #                     STITCH_F1 = f1_score(
+        #                         stitch_cor_gt.detach().cpu().numpy(),
+        #                         stitch_cor_pred.detach().cpu().numpy(),
+        #                         average='macro'
+        #                     )
+        #                     if not np.isnan(STITCH_F1):
+        #                         loss_dict.update({
+        #                             "STITCH_F1": STITCH_F1,
+        #                         })
         # if self.is_train_in_stages and self.training:
         #     with torch.no_grad():
         #         self.cls_loss_list.append(float(cls_loss))
         #         self.mat_loss_list.append(float(mat_loss))
 
-        torch.cuda.empty_cache()
         return loss_dict
 
     # 在训练开始时执行的

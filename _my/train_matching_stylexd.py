@@ -1,4 +1,5 @@
 import os
+
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
@@ -8,6 +9,13 @@ from model import build_model
 from dataset import build_stylexd_dataloader_train_val
 
 def train_model(cfg):
+
+    # catch fault ===
+    if True:
+        import faulthandler
+        # faulthandler.enable()
+        faulthandler.enable(all_threads=True)
+
     if len(cfg.WEIGHT_FILE) > 0:
         ckp_path = cfg.WEIGHT_FILE
         print(f"cfg.WEIGHT_FILE : {ckp_path}")
@@ -74,26 +82,26 @@ def train_model(cfg):
     trainer = pl.Trainer(**trainer_dict)
     train_loader, val_loader = build_stylexd_dataloader_train_val(cfg)
 
-    if not cfg.TRAIN.FINETUNE:
-
-        print(f"{ckp_path}\n")
-        print(os.path.exists(ckp_path))
-
-        model.load_state_dict(torch.load(ckp_path)['state_dict'])
-        print("Start training")
-        trainer.fit(model, train_loader, val_loader, ckpt_path=ckp_path)
-        print("Done training")
-    else:
-        model.load_state_dict(torch.load(ckp_path)['state_dict'])
-        print("Start finetuning")
-        trainer.fit(model, train_loader, val_loader)
-        print("Done finetuning")
+    with torch.autograd.set_detect_anomaly(True):
+        if not cfg.TRAIN.FINETUNE:
+            if ckp_path is not None:
+                model.load_state_dict(torch.load(ckp_path)['state_dict'])
+            print("Start training")
+            trainer.fit(model, train_loader, val_loader, ckpt_path=ckp_path)
+            print("Done training")
+        else:
+            if ckp_path is not None:
+                model.load_state_dict(torch.load(ckp_path)['state_dict'])
+            print("Start finetuning")
+            trainer.fit(model, train_loader, val_loader)
+            print("Done finetuning")
 
 
 if __name__ == "__main__":
     from utils.config import cfg
     from utils.parse_args import parse_args
     from utils.print_easydict import print_easydict
+
 
     args = parse_args("Jigsaw")
 
