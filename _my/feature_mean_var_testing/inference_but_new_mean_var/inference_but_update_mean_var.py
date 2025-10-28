@@ -157,7 +157,7 @@ if __name__ == "__main__":
         batch = to_device(batch, "cpu")
         edgestitch_results = pointstitch_2_edgestitch4(batch, inf_rst,
                                                        stitch_mat_full, stitch_indices_full,
-                                                       unstitch_thresh=12, fliter_len=2, division_thresh = 5,
+                                                       unstitch_thresh=12, fliter_len=2, division_thresh = 12,
                                                        optimize_thresh_neighbor_index_dis=6,
                                                        optimize_thresh_side_index_dis=12,
                                                        auto_adjust=False)
