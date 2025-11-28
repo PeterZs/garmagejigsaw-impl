@@ -1,5 +1,4 @@
 # 获取点点缝合关系
-import os
 
 import torch
 import numpy as np

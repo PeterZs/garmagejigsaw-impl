@@ -1,9 +1,8 @@
-from multiprocessing import Pool
-
-import numpy as np
-import scipy.optimize as opt
 import torch
+import numpy as np
 from torch import Tensor, nn
+import scipy.optimize as opt
+from multiprocessing import Pool
 
 
 def sinkhorn(

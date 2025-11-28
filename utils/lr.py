@@ -4,25 +4,6 @@ import torch
 from torch.optim.lr_scheduler import _LRScheduler
 
 
-def get_lr(optimizer):
-    """Get the learning rate of current optimizer."""
-    return optimizer.param_groups[0]["lr"]
-
-
-def set_lr(optimizer, new_lr):
-    """Set the learning rate of current optimizer to a value."""
-    assert new_lr >= 0.0
-    for param_group in optimizer.param_groups:
-        param_group["lr"] = new_lr
-
-
-def scale_lr(optimizer, scale):
-    """Scale the learning rate of current optimizer by a factor."""
-    assert scale > 0.0
-    for param_group in optimizer.param_groups:
-        param_group["lr"] = param_group["lr"] * scale
-
-
 class CosineAnnealingWarmupRestarts(_LRScheduler):
     """CosineLR with Warmup.
 
@@ -187,9 +168,7 @@ class LinearAnnealingWarmup(_LRScheduler):
         super(CosineAnnealingWarmupRestarts, self).__init__(
             optimizer, last_epoch
         )
-
-        # set learning rate min_lr
-        self.init_lr()
+        self.init_lr()  # set learning rate min_lr
 
     def init_lr(self):
         self.base_lrs = []

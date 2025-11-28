@@ -12,16 +12,12 @@ import matplotlib.cm as cm
 
 
 def pointcloud_visualize(vertices_:np.array, title="", colormap="tab20", colornum=32, color_norm = [-10,10], export_data_config=None):
-    # num_parts = 11
-    # 拷贝
     if  isinstance(vertices_, torch.Tensor):
         vertices = deepcopy(vertices_.detach())
     elif isinstance(vertices_, list) and isinstance(vertices_[0], torch.Tensor):
         vertices = [deepcopy(v.detach()) for v in vertices_]
     else:
         vertices = deepcopy(vertices_)
-
-    # 转换ndarray
     if isinstance(vertices, torch.Tensor):
         vertices = vertices.detach().cpu().numpy()
     if isinstance(vertices, list):
@@ -40,30 +36,23 @@ def pointcloud_visualize(vertices_:np.array, title="", colormap="tab20", colornu
     else:
         point_size = 5
 
-    # 场景
     fig = go.Figure()
 
     all_coords = np.concatenate(vertices, axis=0)
 
     min_val = np.min(all_coords)
     max_val = np.max(all_coords)
-    # 定义颜色映射
     colors = cm.get_cmap(colormap, colornum)
     color_norm = mcolors.Normalize(vmin=color_norm[0], vmax=color_norm[1])
     # part_colors = plt.get_cmap('coolwarm', num_parts)
     for i, vertex in enumerate(vertices):
-        # 获取颜色
         color = mcolors.to_hex(colors(color_norm(i)))
-        # part_color = mcolors.to_hex(part_colors(i))
-        # 一个piece上的点
         surf_pnts = vertex
 
-        # x, y, z坐标
         x = surf_pnts[:, 0]
         y = surf_pnts[:, 1]
         z = surf_pnts[:, 2]
 
-        # 在场景中添加点云
         fig.add_trace(go.Scatter3d(
             x=x,
             y=y,
@@ -90,40 +79,40 @@ def pointcloud_visualize(vertices_:np.array, title="", colormap="tab20", colornu
                 title='Z Axis',
                 range=[min_val, max_val]
             ),
-            aspectmode='cube'  # 确保各个轴的比例相同
+            aspectmode='cube'
         ),
         title=title
     )
 
-    # 绕着人旋转一圈，并保存图片 --------------------------------------------------------------------------------------------
+    # === exporet rotate video ===
     if export_data_config:
         fig.update_layout(
             scene=dict(
                 xaxis=dict(
                     title='X Axis',
                     range=[min_val, max_val],
-                    showgrid = False,  # 隐藏网格线
-                    showticklabels = False,  # 隐藏刻度标签
+                    showgrid = False,
+                    showticklabels = False,
                     zeroline = False,
-                    visible=False  # 隐藏以上所有，和其它的
+                    visible=False
                 ),
                 yaxis=dict(
                     title='Y Axis',
                     range=[min_val, max_val],
-                    showgrid = False,  # 隐藏网格线
-                    showticklabels = False,  # 隐藏刻度标签
+                    showgrid = False,
+                    showticklabels = False,
                     zeroline = False,
-                    visible=False  # 隐藏以上所有，和其它的
+                    visible=False
                 ),
                 zaxis=dict(
                     title='Z Axis',
                     range=[min_val, max_val],
-                    showgrid = False,  # 隐藏网格线
-                    showticklabels = False,  # 隐藏刻度标签
+                    showgrid = False,
+                    showticklabels = False,
                     zeroline=False,
-                    visible=False  # 隐藏以上所有，和其它的
+                    visible=False
                 ),
-                aspectmode='cube'  # 确保各个轴的比例相同
+                aspectmode='cube'
             ),
             title=title
         )
@@ -195,6 +184,5 @@ def pointcloud_visualize(vertices_:np.array, title="", colormap="tab20", colornu
             fig.write_image(img_path, width=1920, height=1920, scale=2)
             # fig.show()
 
-    # 显示图形
     if export_data_config is None:
         fig.show("browser")

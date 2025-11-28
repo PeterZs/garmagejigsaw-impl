@@ -177,12 +177,14 @@ cython_debug/
 
 # vscode
 .vscode
-/_my/another_script/ckpt_transfer/data/
 /_tmp/garment_json_output/
 /_tmp/mesh_split/
 /_tmp/StyleXD_Preprocess/
 /_tmp/mesh_split/
 /_tmp/
-/_my/another_script/results/
-/_my/another_script/ckpt_transfer/results/
-/_my/only_export_vis_rotate/output/
+/_my/test_pointNet/
+/_my/another_script/
+/_my/only_export_vis_rotate/
+/_my/feature_mean_var_testing/
+/_my/SigAsia2025_rebuttle/finetune_on_previsou_ckpt/finetune_from/
+/_my/SigAsia2025_rebuttle/train_on_GCDMM/pretrained/

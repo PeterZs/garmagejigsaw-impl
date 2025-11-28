@@ -1,16 +1,13 @@
-# 新增功能：composite_visualize 在一个页面中显示多个内容，并能够保存为html文件
 import math
-import os
 from glob import glob
-import pickle
-import json
+import os, pickle, json
 from copy import deepcopy
 
 import torch
-from torchvision.utils import make_grid
 import numpy as np
 import matplotlib.colors as mcolors
 from matplotlib import pyplot as plt
+from torchvision.utils import make_grid
 
 import plotly.express as px
 import plotly.graph_objects as go
@@ -19,11 +16,11 @@ from plotly.subplots import make_subplots
 
 def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
     """
+    Displays multiple contents on a single page
     :param batch:       dataset output with 1 batch_size
     :param inf_rst:     inference result of model
     :return:
     """
-    # === 数据 ===
     uv = batch["uv"].squeeze(0).detach().cpu().numpy()
     pcs = batch["pcs"].squeeze(0).detach().cpu().numpy()
     num_parts = batch["num_parts"].item()
@@ -33,7 +30,7 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
     if stitch_indices_full is not None:
         stitch_indices_full = stitch_indices_full.detach().cpu().numpy()
 
-    # === fig的布局设置 ===
+    # === fig layout ===
     fig = make_subplots(
         rows=2, cols=3, subplot_titles=("Original 3D Boundary", "Classified 3D Boundary",   "Point Stitch",
                                         "Geometry Image",       "Original UV",              "Approx Edge",
@@ -42,17 +39,16 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
             [{"type": "scene", "colspan": 1, "rowspan": 1}, {"type": "scene", "colspan": 1, "rowspan": 1}, {"type": "scene", "colspan": 1, "rowspan": 1}],
             [{"type": "xy", "colspan": 1, "rowspan": 1},    {"type": "xy", "colspan": 1, "rowspan": 1},    {"type": "scene", "colspan": 1, "rowspan": 1}],
         ],
-        vertical_spacing=0.02,  # 设置垂直间距
-        horizontal_spacing=0.02  # 设置水平间距
+        vertical_spacing=0.02,
+        horizontal_spacing=0.02
     )
 
-    # === 各种cmap ===
+    # === cmaps ===
     part_colors = plt.get_cmap('coolwarm', num_parts)
     cls_colors = plt.get_cmap('bwr', 2)
     cls_color_norm = mcolors.Normalize(vmin=-0.3, vmax=1.3)
     stitch_logits_colors = plt.get_cmap('coolwarm_r', 10)
 
-    # 往fig的不同subplot里添加各种go ------------------------------------------------------------------
     # === Original Boundary Points ===
     for part_idx in range(num_parts):
         part_color = mcolors.to_hex(part_colors(part_idx))
@@ -106,7 +102,8 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
                 opacity=0.8
             )
         ), row=1, col=3)
-    # Stitch
+
+    # === Stitch ===
     color_norm = mcolors.Normalize(vmin=0, vmax=1)
     for i, pair in enumerate(stitch_indices_full):
         color = mcolors.to_hex(stitch_logits_colors(color_norm(logits[i])))
@@ -133,11 +130,6 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
             orig_data["surf_ncs"] = orig_data["surf_ncs"].reshape(-1,256,256,3)
         mask = (orig_data["surf_mask"]>0).transpose(0,3,1,2)
         geo = orig_data["surf_ncs"].transpose(0,3,1,2)
-    # geo_fp = os.path.join(batch["mesh_file_path"][0], "original_data", "xyz.pkl")
-    # mask_fp = os.path.join(batch["mesh_file_path"][0], "original_data", "mask.pkl")
-    # with open(geo_fp, 'rb') as geo_f, open(mask_fp, 'rb') as mask_f:
-    #     geo = pickle.load(geo_f).transpose(0,3,1,2)
-    #     mask = pickle.load(mask_f).transpose(0,3,1,2)
 
     geo = (geo+1.)*0.5
     geo[~np.repeat(mask, 3, axis=1)] = 1
@@ -163,40 +155,6 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
                 opacity=0.8
             )
         ), row=2, col=2)
-    #
-    # # === Classified UV ===
-    # for cls_idx in range(2):
-    #     part_color = mcolors.to_hex(cls_colors(cls_color_norm(cls_idx)))
-    #     cls_mask = pc_cls_mask==1 if cls_idx==0 else pc_cls_mask==0
-    #     pts_uv = uv[cls_mask]
-    #     fig.add_trace(go.Scatter(
-    #         x=pts_uv[:, 0],
-    #         y=pts_uv[:, 1],
-    #         mode='markers',
-    #         name='s%02d_uv' % part_idx,
-    #         marker=dict(
-    #             size=3,
-    #             color=part_color,
-    #             opacity=0.8
-    #         )
-    #     ), row=2, col=3)
-    #
-    # color_norm = mcolors.Normalize(vmin=0, vmax=1)
-    # for i, pair in enumerate(stitch_indices_full):
-    #     color = mcolors.to_hex(stitch_logits_colors(color_norm(logits[i])))
-    #     pts = pcs[np.array(pair)]
-    #     x,y,z = pts[:, 0], pts[:, 1], pts[:, 2]
-    #     fig.add_trace(go.Scatter3d(
-    #         x=[x[0], x[1]],
-    #         y=[y[0], y[1]],
-    #         z=[z[0], z[1]],
-    #         mode='lines',
-    #         line=dict(
-    #             color=color,
-    #             width=8
-    #         ),
-    #         showlegend=False
-    #     ), row=1, col=3)
 
     # === Approx Edge ===
     garment_json_path = batch["garment_json_path"][0]
@@ -258,33 +216,24 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
             ), row=2, col=3)
 
 
-    # fig的设置 ------------------------------------------------------------------------------------
+    # === fig settings ===
     scene_dict_3d = dict(
             aspectmode='manual',
             aspectratio=dict(x=1, y=1, z=1),
-            xaxis=dict(range=[-1.5, 1.5], visible=False),  # 隐藏x轴
-            yaxis=dict(range=[-1.5, 1.5], visible=False),  # 隐藏y轴
-            zaxis=dict(range=[-1.5, 1.5], visible=False),  # 隐藏z轴
-            xaxis_title=None,  # 移除x轴标题
-            yaxis_title=None,  # 移除y轴标题
-            zaxis_title=None,  # 移除z轴标题
-            bgcolor='rgba(0,0,0,0)',  # 设置背景为透明
-        )
-    scene_dict_2d = dict(
-            aspectmode='manual',
-            aspectratio=dict(x=1, y=1, z=1),
-            xaxis=dict(range=[-1.5, 1.5], visible=False, showgrid = False, ),  # 隐藏x轴
-            yaxis=dict(range=[-1.5, 1.5], visible=False, showgrid = False, ),  # 隐藏y轴
-            xaxis_title=None,  # 移除x轴标题
-            yaxis_title=None,  # 移除y轴标题
-            bgcolor='rgba(0,0,0,0)',  # 设置背景为透明
+            xaxis=dict(range=[-1.5, 1.5], visible=False),
+            yaxis=dict(range=[-1.5, 1.5], visible=False),
+            zaxis=dict(range=[-1.5, 1.5], visible=False),
+            xaxis_title=None,
+            yaxis_title=None,
+            zaxis_title=None,
+            bgcolor='rgba(0,0,0,0)',
         )
     fig.update_layout(
         height=1400, width=2400, title_text="Garment",
         scene_camera  = dict(up=dict(x=0, y=1, z=0), center=dict(x=0, y=0, z=0), eye=dict(x=0, y=0.1, z=0.5)),
         scene2_camera = dict(up=dict(x=0, y=1, z=0), center=dict(x=0, y=0, z=0), eye=dict(x=0, y=0.1, z=0.5)),
         scene3_camera = dict(up=dict(x=0, y=1, z=0), center=dict(x=0, y=0, z=0), eye=dict(x=0, y=0.1, z=0.5)),
-        scene4_camera = dict(up=dict(x=0, y=1, z=0), center=dict(x=0, y=0, z=0), eye=dict(x=0, y=0.1, z=0.5)),  # 给approx用的
+        scene4_camera = dict(up=dict(x=0, y=1, z=0), center=dict(x=0, y=0, z=0), eye=dict(x=0, y=0.1, z=0.5)),
         scene=scene_dict_3d,
         scene2=scene_dict_3d,
         scene3=scene_dict_3d,
@@ -292,14 +241,11 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
         scene5=scene_dict_3d,
         scene6=scene_dict_3d,
 
-        xaxis4=dict(range=[-1.5, 1.5], showgrid=False, visible=False),  # scene4 x轴
-        yaxis4=dict(range=[-1.5, 1.5], showgrid=False, visible=False),  # scene4 y轴
-        xaxis5=dict(range=[-1.5, 1.5], showgrid=False, visible=False),  # scene5 x轴
-        yaxis5=dict(range=[-1.5, 1.5], showgrid=False, visible=False),  # scene5 y轴
-        # xaxis6=dict(range=[-1.5, 1.5], showgrid=False, visible=False),  # scene6 x轴
-        # yaxis6=dict(range=[-1.5, 1.5], showgrid=False, visible=False),  # scene6 y轴
+        xaxis4=dict(range=[-1.5, 1.5], showgrid=False, visible=False),
+        yaxis4=dict(range=[-1.5, 1.5], showgrid=False, visible=False),
+        xaxis5=dict(range=[-1.5, 1.5], showgrid=False, visible=False),
+        yaxis5=dict(range=[-1.5, 1.5], showgrid=False, visible=False),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)'
     )
     return fig
-

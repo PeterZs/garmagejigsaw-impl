@@ -10,6 +10,7 @@ def sl2graph(stitch_indices):
     stitch_indices = torch.sort(stitch_indices, dim=1).values
     Graph = torch.unique(stitch_indices, dim=0)
     return Graph
+
 # 获取一段随机的 uuid
 def get_random_uuid():
     id = str(uuid.uuid4().hex)

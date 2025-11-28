@@ -1,6 +1,6 @@
+import torch
 import numpy as np
 import open3d as o3d
-import torch
 
 
 def square_distance(src, dst, normalised=False):
@@ -49,7 +49,6 @@ def to_array(tensor):
             return tensor.cpu().numpy()
     else:
         return tensor
-
 
 
 def to_o3d_pcd(xyz):
@@ -109,40 +108,12 @@ def mutual_selection(score_mat):
     return mutuals.astype(np.bool)
 
 
-# from utils.visualization.pointcloud_visualize import pointcloud_visualize
-def min_max_normalize(points):
-    """
-    对 Nx3 点进行 Min-Max 归一化，使得点的坐标在 [-1, 1] 范围内。
-
-    Args:
-        points (ndarray): Nx3 的点集。
-
-    Returns:
-        ndarray: 归一化后的 Nx3 点集。
-    """
-    # 计算每一列的最小值和最大值
-    min_vals = np.min(points, axis=0)
-    max_vals = np.max(points, axis=0)
-
-    # 移动到中心
-    points = points - (max_vals + min_vals)/2
-
-    # 计算每一列的最小值和最大值
-    min_vals = np.min(points, axis=0)
-    max_vals = np.max(points, axis=0)
-
-    # 防止除零
-    ranges = np.array([1]*points.shape[-1]) * np.max(max_vals - min_vals)
-    ranges[ranges == 0] = 1
-
-    # 归一化到 [-0.5, 0.5]
-    normalized_points = points/ranges
-
-    return normalized_points, ranges[0]
-
-
-# 对整个数据集进行的相同的 normalize
 def styleXD_normalize(point):
+    """
+    styleXD dataset normalize
+    :param point:
+    :return:
+    """
     global_scale = 2000.0
     if point.shape[-1]==3:
         global_offset = (0., 1000., 0.)
@@ -188,6 +159,7 @@ def get_pc_bbox(pc: np.array, type: object = "ccwh") -> object:
         return result
     else:
         raise NotImplementedError
+
 
 def pc_rescale(pcs, scale):
     center = torch.tensor(get_pc_bbox(pcs)[0]).unsqueeze(0)

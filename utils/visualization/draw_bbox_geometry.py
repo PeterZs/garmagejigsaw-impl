@@ -1,67 +1,29 @@
-import math
 import os
-import random
-from glob import glob
+import math
 
 import numpy as np
-import pickle
-
-from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
 
 def min_max_normalize(points, bbox):
-    # 计算每一列的最小值和最大值
     min_vals = np.min(points, axis=0)
     max_vals = np.max(points, axis=0)
-
-    # 移动到中心
 
     bbox_normalized = bbox.reshape(-1, 3)
     points = points - (max_vals + min_vals)/2
     bbox_normalized = bbox_normalized - (max_vals + min_vals)/2
-    a=1
-    # 计算每一列的最小值和最大值
+
     min_vals = np.min(points, axis=0)
     max_vals = np.max(points, axis=0)
 
-    # 防止除零
     ranges = np.array([1]*points.shape[-1]) * np.max(max_vals - min_vals)
     ranges[ranges == 0] = 1
 
-    # 归一化到 [-0.5, 0.5]
     normalized_points = points/ranges
     bbox_normalized = bbox_normalized/ranges
     bbox_normalized = bbox_normalized.reshape(-1, 6)
 
     return normalized_points, bbox_normalized
-
-import gc
-
-_CMAP = {
-    "帽": {"alias": "帽", "color": "#F7815D"},
-    "领": {"alias": "领", "color": "#F9D26D"},
-    "肩": {"alias": "肩", "color": "#F23434"},
-    "袖片": {"alias": "袖片", "color": "#C4DBBE"},
-    "袖口": {"alias": "袖口", "color": "#F0EDA8"},
-    "衣身前中": {"alias": "衣身前中", "color": "#8CA740"},
-    "衣身后中": {"alias": "衣身后中", "color": "#4087A7"},
-    "衣身侧": {"alias": "衣身侧", "color": "#DF7D7E"},
-    "底摆": {"alias": "底摆", "color": "#DACBBD"},
-    "腰头": {"alias": "腰头", "color": "#DABDD1"},
-    "裙前中": {"alias": "裙前中", "color": "#46B974"},
-    "裙后中": {"alias": "裙后中", "color": "#6B68F5"},
-    "裙侧": {"alias": "裙侧", "color": "#D37F50"},
-
-    "橡筋": {"alias": "橡筋", "color": "#696969"},
-    "木耳边": {"alias": "木耳边", "color": "#A8D4D2"},
-    "袖笼拼条": {"alias": "袖笼拼条", "color": "#696969"},
-    "荷叶边": {"alias": "荷叶边", "color": "#A8D4D2"},
-    "绑带": {"alias": "绑带", "color": "#696969"}
-}
-
-_PANEL_CLS = [
-    '帽', '领', '肩', '袖片', '袖口', '衣身前中', '衣身后中', '衣身侧', '底摆', '腰头', '裙前中', '裙后中', '裙侧', '橡筋', '木耳边', '袖笼拼条', '荷叶边', '绑带']
 
 
 def _create_bounding_box_lines(min_point, max_point, color):
@@ -300,28 +262,28 @@ def draw_bbox_geometry(
                 xaxis=dict(
                     title='X Axis',
                     range=[min_val, max_val],
-                    showgrid = False,  # 隐藏网格线
-                    showticklabels = False,  # 隐藏刻度标签
+                    showgrid = False,
+                    showticklabels = False,
                     zeroline = False,
-                    visible=False  # 隐藏以上所有，和其它的
+                    visible=False
                 ),
                 yaxis=dict(
                     title='Y Axis',
                     range=[min_val, max_val],
-                    showgrid = False,  # 隐藏网格线
-                    showticklabels = False,  # 隐藏刻度标签
+                    showgrid = False,
+                    showticklabels = False,
                     zeroline = False,
-                    visible=False  # 隐藏以上所有，和其它的
+                    visible=False
                 ),
                 zaxis=dict(
                     title='Z Axis',
                     range=[min_val, max_val],
-                    showgrid = False,  # 隐藏网格线
-                    showticklabels = False,  # 隐藏刻度标签
+                    showgrid = False,
+                    showticklabels = False,
                     zeroline=False,
-                    visible=False  # 隐藏以上所有，和其它的
+                    visible=False
                 ),
-                aspectmode='cube'  # 确保各个轴的比例相同
+                aspectmode='cube'
             ),
             title=""
         )

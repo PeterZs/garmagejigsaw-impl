@@ -1,5 +1,5 @@
-import argparse
 import os
+import argparse
 import platform
 
 from utils.config import cfg, cfg_from_file, cfg_from_list
@@ -20,7 +20,11 @@ def generate_output_path(model_name):
     return output_path, model_save_path
 
 
-def parse_args(description, multimodel=False):
+def parse_args(
+        description,
+        multimodel=False,
+        extra_args=None,
+):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--cfg",
@@ -43,6 +47,13 @@ def parse_args(description, multimodel=False):
             default=None,
             type=str,
         )
+
+    # Apply extra user inputs.
+    if extra_args is not None:
+        if not isinstance(extra_args, list):
+            extra_args = [extra_args]
+        for ex_arg in extra_args:
+            ex_arg(parser)
 
     args = parser.parse_args()
 
@@ -70,7 +81,5 @@ def parse_args(description, multimodel=False):
     # Save the config file into the model save path
     for f in args.cfg_file:
         cp_some(f, cfg.OUTPUT_PATH)
-
-
 
     return args

@@ -27,21 +27,3 @@ def print_easydict(inp_dict: edict):
             )
 
 
-@static_vars(indent_cnt=0)
-def print_easydict_str(inp_dict: edict):
-    ret_str = ""
-    for key, value in inp_dict.items():
-        if type(value) is edict or type(value) is dict:
-            ret_str += "{}{}:\n".format(
-                " " * 2 * print_easydict_str.indent_cnt, key
-            )
-            print_easydict_str.indent_cnt += 1
-            ret_str += print_easydict_str(value)
-            print_easydict_str.indent_cnt -= 1
-
-        else:
-            ret_str += "{}{}: {}\n".format(
-                " " * 2 * print_easydict_str.indent_cnt, key, value
-            )
-
-    return ret_str

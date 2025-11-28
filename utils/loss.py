@@ -2,25 +2,6 @@ import torch
 import torch.nn.functional as F
 
 
-def _valid_mean(loss_per_part, valids):
-    """Average loss values according to the valid parts.
-
-    Args:
-        loss_per_part: [B, P]
-        valids: [B, P], 1 for input parts, 0 for padded parts
-
-    Returns:
-        [B], loss per data in the batch, averaged over valid parts
-    """
-    if valids is not None:
-        valids = valids.float().detach()
-        loss_per_data = (loss_per_part * valids).sum(1) / valids.sum(1)
-    else:
-        loss_per_data = loss_per_part.sum(1) / loss_per_part.shape[1]
-    return loss_per_data
-
-
-# 二元交叉熵？
 def permutation_loss(pred_mat, gt_mat, src_ns, tgt_ns):
     """
     Permutation loss

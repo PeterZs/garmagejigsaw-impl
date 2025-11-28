@@ -1,7 +1,5 @@
-# Transfer the data format of stitch.
-
-import numpy as np
 import torch
+import numpy as np
 
 
 def stitch_indices2mat(num_points, indices):
@@ -25,9 +23,10 @@ def stitch_mat2indices(matrix):
         raise TypeError
     return indices
 
+
 def stitch_indices_order(stitch_indices, order_indices):
     """
-    Sort the stitch_indices by order (high efficiency)
+    Sort the stitch_indices by order
 
     :param stitch_indices:
     :param order_indices:
@@ -37,14 +36,3 @@ def stitch_indices_order(stitch_indices, order_indices):
     mapping[order_indices] = np.arange(len(order_indices))
     stitch_indices = mapping[stitch_indices]
     return stitch_indices
-
-def stitch_mat_order(matrix, order_indices):
-    """
-    Sort the stitch_mat by order (low efficiency)
-
-    :param matrix:
-    :param order_indices:
-    :return:
-    """
-    matrix_order = matrix[np.ix_(order_indices, order_indices)]
-    return matrix_order

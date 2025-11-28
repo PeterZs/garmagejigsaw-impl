@@ -6,42 +6,38 @@ import random
 from copy import copy
 from glob import glob
 
+import igl
 import torch
 import numpy as np
-import igl
 import trimesh
 import trimesh.sample
-
 from diffusers import DDPMScheduler
-
 from scipy.spatial.transform import Rotation as R
 from torch.utils.data import Dataset, DataLoader
 from scipy.ndimage import convolve1d
 
-from utils import min_max_normalize, styleXD_normalize, get_pc_bbox  # , compute_adjacency_list
-# from utils import meshes_visualize, stitch_visualize, pointcloud_visualize, pointcloud_and_stitch_visualize
-from utils import balancedSample #  , LatinHypercubeSample, random_point_in_convex_hull
-from utils import stitch_mat2indices, stitch_indices2mat, stitch_indices_order, stitch_mat_order, cal_mean_edge_len
+from utils import balancedSample
+from utils import styleXD_normalize, get_pc_bbox
+from utils import stitch_indices2mat, stitch_indices_order, cal_mean_edge_len
+
+
+def smooth_using_convolution(noise, k=3):
+    k = [1] * k
+    kernel = np.array(k) / sum(k)
+    smoothed_noise = convolve1d(noise, kernel, axis=0, mode='nearest')
+    return smoothed_noise
 
 
 class AllPieceMatchingDataset_stylexd(Dataset):
-    """Geometry part assembly dataset, with fracture surface information.
-
-    We follow the data prepared by Breaking Bad dataset:
-        https://breaking-bad-dataset.github.io/
-    """
-
     def __init__(
             self,
             data_dir,
-            data_keys,
             data_types = (),
-            category="all",
-            num_points=1000,
-            random_sample_num=None,
+
+            num_points=1000,    # point sample num per garment
             min_num_part=2,
             max_num_part=20,
-            shuffle_parts=False,
+            read_uv = False,
 
             shrink_mesh=False,
             shrink_mesh_param=1,
@@ -54,20 +50,17 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             scale_range=0,
             bbox_noise_strength=15,
 
-            overfit=10,
-
             pcs_sample_type="area",
-            pcs_noise_type="default",
-            pcs_noise_strength=1.,
-            pcs_sample_type_stitch_only_sample_boundary = False,   # pcs_sample_type="stitch"时，仅采样属于mesh边缘的点
-            use_stitch_noise = False,  # 是否沿着缝合线添加noise
+            pcs_sample_type_stitch_only_sample_boundary = False,
+            use_stitch_noise = False,
             stitch_noise_strength = 1,
             stitch_noise_random_range = (0.8, 2.2),
-            read_uv = False,
 
             min_part_point=30,
             mode= "train",
-            dataset_split_dir = "data/stylexd_jigsaw/dataset_split"
+            dataset_split_dir = "data/stylexd_jigsaw/dataset_split",
+            inference_data_list=None,   # data list while running inference.
+            **kwargs
     ):
         if mode not in ["train", "val", "test", "inference"]:
             raise ValueError(f"mode=\"{mode}\" is not valid.")
@@ -76,32 +69,25 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         self.data_dir = data_dir
         self.data_types = data_types
 
-        try:
-            with open(os.path.join(data_dir,self.mode,"data_info.json"), "r", encoding="utf-8") as f:
-                self.data_info = json.load(f)
-        except:
-            self.data_info = None
-
         self.dataset_split_dir = dataset_split_dir
+        self.inference_data_list = inference_data_list
         self.data_list = self._read_data()
-        # self.data_list = self.data_list[::50]
-
-        self.category = category if category.lower() != "all" else ""
 
         self.num_points = num_points
-        # [todo] 随机采样点数量
-        self.random_sample_num = random_sample_num
 
+        # Used to filter data by part num and panel`s point num
         self.min_num_part = min_num_part
-        self.max_num_part = max_num_part  # ignore shapes with more parts
-        self.min_part_point = min_part_point  # ensure that each piece has at least # points
-        # self.shuffle_parts = shuffle_parts  # shuffle part orders
+        self.max_num_part = max_num_part
+        self.min_part_point = min_part_point
 
+        self.read_uv = read_uv
+
+        # === panel noise ===
         self.panel_noise_type = panel_noise_type
         if self.panel_noise_type == "default":
             self.scale_range = scale_range
-            self.rot_range = rot_range  # rotation range in degree
-            self.trans_range = trans_range  # translation range
+            self.rot_range = rot_range
+            self.trans_range = trans_range
         elif self.panel_noise_type == "bbox":
             self.noise_scheduler = DDPMScheduler(
                 num_train_timesteps=1000,
@@ -112,13 +98,13 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 clip_sample=False,
             )
             self.bbox_noise_strength = bbox_noise_strength
+
+        # === point sample ===
         """
-        stitch（only training）：根据缝合关系按比例采样
-        boundary_mesh：在mesh的边缘点上采样
-        boundary_pcs：直接在采样出的边缘点上采样
+        stitch: sample points on obj for training.
+        boundary_pcs: sample points on generated Garmage for inference.
         """
-        if pcs_sample_type not in [ "stitch", "boundary_mesh", "boundary_pcs"]:
-            raise ValueError(f"pcs_sample_type=\"{pcs_sample_type}\" is not valid.")
+        assert pcs_sample_type in [ "stitch", "boundary_pcs"]
         self.pcs_sample_type = pcs_sample_type
         self.pcs_sample_type_stitch_only_sample_boundary = pcs_sample_type_stitch_only_sample_boundary
         self.shrink_mesh=shrink_mesh
@@ -126,10 +112,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         self.shrink_bystitch=shrink_bystitch
         self.shrink_bystitch_strength=shrink_bystitch_strength
 
-        self.pcs_noise_strength = pcs_noise_strength
-        if pcs_noise_type not in ["default", "normal"]:
-            raise ValueError(f"pcs_noise_type=\"{pcs_noise_type}\" is not valid.")
-        self.pcs_noise_type = pcs_noise_type
+        # === point noise ===
         self.use_stitch_noise = use_stitch_noise
         self.stitch_noise_strength = stitch_noise_strength
         self.stitch_noise_random_min = min(stitch_noise_random_range)
@@ -137,42 +120,44 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
         print("dataset length: ", len(self.data_list))
 
-        self.data_keys = data_keys
-
-
-        if overfit > 0:
-            self.data_list = self.data_list[:overfit]
-
-        self.length = len(self.data_list)
-
-        self.read_uv = read_uv
-
-
     def __len__(self):
-        return self.length
+        return len(self.data_list)
 
     def _read_data(self):
-        if self.mode in ["train", "val", "test"]:
+        if self.mode in ["train", "val"]:
             with open(os.path.join(self.dataset_split_dir, f"{self.mode}.json") ,"r", encoding="utf-8") as f:
                 split = json.load(f)
             mesh_dir = os.path.join(self.data_dir, self.mode)
             data_list = [os.path.join(mesh_dir, dir_) for dir_ in split]
             return data_list
-        # 根据数据类型读取不同的数据去inference
-        if self.mode == "inference":
-            assert len(self.data_types)!=0, "self.data_types can't be empty in inference."
-            self.data_types = list(dict.fromkeys(self.data_types))  # 去除重复
-            data_list = []
-            for type_name in self.data_types:
-                mesh_dir = os.path.join(self.data_dir, self.mode)
-                mesh_dir = os.path.join(mesh_dir, type_name)
-                assert os.path.exists(mesh_dir), f"No data folder corresponding to data_types:{self.data_types}"
-                data_list.extend(sorted(glob(os.path.join(mesh_dir, "garment_*"))))
-            return data_list        # 根据数据类型读取不同的数据去inference
+        elif self.mode == "inference":
+            if self.inference_data_list:
+                inference_data_list = []
+                for dir in self.inference_data_list:
+                    if not os.path.isdir(dir):
+                        continue
+                    if len(glob(os.path.join(dir, "*.obj")))==0:
+                        continue
+                    inference_data_list.append(dir)
+                self.data_list = inference_data_list
+                del self.inference_data_list
+            else:
+                assert len(self.data_types)!=0, "self.data_types can't be empty in inference."
+                self.data_types = list(dict.fromkeys(self.data_types))
+                data_list = []
+                for type_name in self.data_types:
+                    mesh_dir = os.path.join(self.data_dir, self.mode)
+                    mesh_dir = os.path.join(mesh_dir, type_name)
+                    assert os.path.exists(mesh_dir), f"No data folder corresponding to data_types:{self.data_types}"
+                    data_list.extend(sorted(glob(os.path.join(mesh_dir, "garment_*"))))
+                    data_list = [dir for dir in data_list if os.path.isdir(dir)]
+            return data_list
+        else:
+            raise KeyError(f"mode {self.mode} not supported.")
 
-    # random scale+rotate+move panel (default)
     def _random_SRM_default(self, pc, pcs, pc_idx, mean_edge_len):
         """
+        Panel Noise: random scale+rotate+move
         pc: [N, 3]
         """
         noise_strength_S = random.random()*0.5 + 0.2
@@ -180,9 +165,9 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         noise_strength_M = random.random()*0.6 + 0.8
 
         pc_centroid = get_pc_bbox(pc)[0]
+
         # SCALE
         pc = pc - pc_centroid[None]
-
         scale_gt = (np.random.rand(1) * self.scale_range) * noise_strength_S + 1
         pc = pc*scale_gt
 
@@ -194,7 +179,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             rot_mat = R.random().as_matrix()
         pc = (rot_mat @ pc.T).T
         quat_gt = R.from_matrix(rot_mat.T).as_quat()
-        # we use scalar-first quaternion
         quat_gt = quat_gt[[3, 0, 1, 2]] * noise_strength_R
         pc = pc + pc_centroid[None]
 
@@ -205,7 +189,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
         move_vec = pc_centroid-bkg_pcs_centroid
         move_vec = move_vec/np.linalg.norm(move_vec)
-        # 水平投影，引导Panel在水平上向外移动
+
         move_vec_horizon = np.zeros_like(move_vec)
         move_vec_horizon[:] = move_vec[:]
         move_vec_horizon[1] = move_vec_horizon[1]/2
@@ -217,13 +201,18 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         trans_gt = (mean_edge_len * move_vec * (np.random.rand(3) + 1.) / 4. * self.trans_range).reshape(-1, 3)
         pc = pc + trans_gt
 
-        # trans_gt = (mean_edge_len * (np.random.rand(3) - 0.5) * 2.0 * self.trans_range).reshape(-1,3) * noise_strength_M
-        # pc = pc + trans_gt
+        trans_gt = (mean_edge_len * (np.random.rand(3) - 0.5) * 2.0 * self.trans_range).reshape(-1,3) * noise_strength_M
+        pc = pc + trans_gt
         return pc, trans_gt, quat_gt
 
-    # apply bbox changing to the pointcloud
     def transform_pc(self, pc, bbox_old, bbox_new):
-        # 解析 BBOX_old 和 BBOX_new
+        """
+        apply bbox changing to the pointcloud
+        :param pc:
+        :param bbox_old:
+        :param bbox_new:
+        :return:
+        """
         xyz_min_old, xyz_max_old = np.array(bbox_old[:3]), np.array(bbox_old[3:])
         xyz_min_new, xyz_max_new = np.array(bbox_new[:3]), np.array(bbox_new[3:])
 
@@ -239,31 +228,24 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
         return pc_transformed
 
-    # random scale+move panel by add noise on panel bbox
     def _random_SM_byBbox(self, pc):
+        """
+        Panel Noise: random scale+move panel by add noise on their bbox
+        """
         bbox_old = get_pc_bbox(pc, type="xyxy")
         bbox_old = torch.Tensor(np.concatenate(bbox_old), device="cpu").unsqueeze(0)
         aug_ts_float = torch.rand(1) * self.bbox_noise_strength
         if self.bbox_noise_strength>0:
-            # aug_ts = torch.randint(0, self.bbox_noise_strength, (1,), device="cpu").long()
             aug_ts = torch.ceil(aug_ts_float).long()
-
-            # gen = torch.Generator(device="cpu")  # 创建一个新的随机生成器
-            # gen.manual_seed(torch.randint(0, 2 ** 32, (1,)).item())  # 重新设定随机种子
-            # aug_noise = torch.randn(bbox_old.shape, generator=gen, device="cpu")
             aug_noise = torch.randn(bbox_old.shape, device="cpu")
             bbox_new = self.noise_scheduler.add_noise(bbox_old, aug_noise, aug_ts)
-
             bbox_inter = (aug_ts_float)/aug_ts * bbox_new + (aug_ts - aug_ts_float)/aug_ts * bbox_old
-            # pc_new = self.transform_pc(pc, bbox_old.squeeze(0), bbox_new.squeeze(0))
             pc_new = self.transform_pc(pc, bbox_old.squeeze(0), bbox_inter.squeeze(0))
         else:
             pc_new = pc
         return pc_new
 
     def _pad_data(self, data, pad_size=None, pad_num=0):
-        """Pad data to shape [`self.max_num_part`, data.shape[1], ...]."""
-
         if pad_size is None:
             pad_size = self.max_num_part
         data = np.array(data)
@@ -275,97 +257,28 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         pad_data[: data.shape[0]] = data
         return pad_data
 
-    def sample_point_byBoundaryMesh(self, meshes, num_points):
-        pcs, piece_id, nps = [], [], [len(mesh.vertices) for mesh in meshes]
-        sample_fid = []  # 采样点的faceid
-
-        # 所有的顶点、面、边界点
-        vertices = np.concatenate([np.array(mesh.vertices) for mesh in meshes], axis=0)
-        faces = []
-        boundary_point_list = []
-        adjacency_list = []
-
-        # PART 1 -------------------------------------------------------------------------------------------------------
-        # 因为读取的mesh被划分为多个，因此，面中index和边界点index都需要转换为全局index
-        points_end_idxs = np.cumsum(nps)
-        n_loop_pts = []  # 每个loop的顶点数
-        for idx, mesh in enumerate(meshes):
-            if idx == 0:
-                point_start_idx = 0
-            else:
-                point_start_idx = points_end_idxs[idx - 1]
-            # point_end_idx = points_end_idxs[idx]
-            # 获取边界点的全局index
-            for loop in igl.all_boundary_loop(mesh.faces):
-                loop = np.array(loop) + point_start_idx
-                boundary_point_list.append(loop)
-                boundary_adjacency = np.zeros((len(loop), 4), dtype=np.int32)
-                if len(loop) > 4:
-                    boundary_adjacency[:, 0] = np.concatenate([loop[2:], loop[:2]],axis=-1)
-                    boundary_adjacency[:, 1] = np.concatenate([loop[1:], loop[:1]],axis=-1)
-                    boundary_adjacency[:, 2] = np.concatenate([loop[-1:], loop[:-1]],axis=-1)
-                    boundary_adjacency[:, 3] = np.concatenate([loop[-2:], loop[:-2]],axis=-1)
-                else:
-                    boundary_adjacency[:, :] = loop
-                n_loop_pts.append(len(loop))
-                adjacency_list.append(boundary_adjacency)
-
-            # 获取面的全局index
-            faces.append(np.array(mesh.faces) + point_start_idx)
-        faces = np.concatenate(faces, axis=0)
-        boundary_points_idx = np.concatenate(boundary_point_list, axis=0)
-        adjacency_list = np.concatenate(adjacency_list, axis=-2)
-        # pointcloud_visualize(vertices[boundary_points_idx])
-
-        boundary_points = vertices[boundary_points_idx]
-        piece_id = np.concatenate([np.array([idx] * n) for idx, n in enumerate(nps)], axis=0)[boundary_points_idx]
-        points_normalized, normalize_range = min_max_normalize(boundary_points)
-        mean_edge_len = cal_mean_edge_len(meshes) / normalize_range
-        # pointcloud_visualize(points_normalized)
-        for i in range(len(nps)):
-            pcs.append(points_normalized[piece_id == i])
-        nps = np.array([len(pc) for pc in pcs])
-
-        sample_result =dict(
-            pcs=pcs,
-            piece_id=piece_id,
-            nps=nps,
-            mat_gt=None,
-            mean_edge_len=mean_edge_len,
-            normalize_range=normalize_range
-        )
-        return sample_result
-
-    def sample_point_byBoundaryPcs(self, meshes, num_points):
+    def sample_point_byBoundaryPcs(self, meshes):
+        """
+        sample point from generated Garmage.
+        """
         pcs = [np.array(mesh.vertices) for mesh in meshes]
-        num_parts = len(pcs)
-        piece_id = np.concatenate([[idx]*len(pcs[idx]) for idx in range(len(pcs))], axis=0)
-        # pcs_normalized, normalize_range = styleXD_normalize(np.concatenate(pcs))
-        # pcs_normalized, normalize_range = np.concatenate(pcs), 1.
-
-        # [TODO]
-        # pcs_normalized, normalize_range = min_max_normalize(np.concatenate(pcs))
-        pcs_normalized = np.concatenate(pcs)
-        normalize_range = 1
-
-        pcs = [pcs_normalized[piece_id==panel_idx] for panel_idx in range(num_parts)]
         nps = np.array([len(pc) for pc in pcs])
-        mean_edge_len = 0.0072/normalize_range
+        piece_id = np.concatenate([[idx]*len(pcs[idx]) for idx in range(len(pcs))], axis=0)
+        mean_edge_len = 0.0072
         sample_result =dict(
             pcs=pcs,
-            piece_id=piece_id,
             nps=nps,
+            piece_id=piece_id,
             mat_gt=None,
             mean_edge_len=mean_edge_len,
-            normalize_range=normalize_range,
+            normalize_range=1,
             panel_instance_seg=None
         )
         return sample_result
 
-
     def sample_point_byStitch(self, meshes, stitches, full_uv_info, n_rings = 2, max_check_times=4, min_samplenum_prepanel=4):
         """
-        根据缝合点和不缝合点的数量，按比例进行对这两种点进行分别采样
+        Sample point from garment mesh.
 
         :param meshes:          List of trimesh.Trimesh
         :param num_points:      Target point sample num
@@ -377,98 +290,69 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         :return:
         """
 
-        num_points = self.num_points
 
         pcs = []
-        nps =  [len(mesh.vertices) for mesh in meshes]      # 每个 Panel 的点的数量
-        num_parts = len(nps)    # Panel 数量
-        piece_id_global = np.concatenate([[idx]*i for idx,i in enumerate(nps)], axis=-1)    # 每个点顶点的 piece id
+        nps =  [len(mesh.vertices) for mesh in meshes]      # point num of each panel
+        num_parts = len(nps)    # Panel num
+        piece_id_global = np.concatenate([[idx]*i for idx,i in enumerate(nps)], axis=-1)
+        num_points = self.num_points
 
-        # PART 1 获取 所有顶点、所有面(面中的index转全局index，因为一个衣服包含很多个mesh)、所有的边界点，分别保存在 vertices、faces、boundary_point_list 中
-
-        vertices = np.concatenate([np.array(mesh.vertices) for mesh in meshes], axis=0)     # 所有的 顶点
-        faces = []      # 所有的 面
-        boundary_point_list = []     # 所有的 边界点
-
+        # === Get boundary ===
+        # Get indices of mesh`s boundary vertices
+        vertices = np.concatenate([np.array(mesh.vertices) for mesh in meshes], axis=0)
+        boundary_point_list = []
         points_end_idxs = np.cumsum(nps)
         for idx, mesh in enumerate(meshes):
             if idx ==0 : point_start_idx = 0
             else: point_start_idx = points_end_idxs[idx-1]
-            # 获取边界点的全局index
-            new_list = []  # 一个Panel可能包含多个contours
+            # A panel may contain multi contours
+            new_list = []
             for loop in igl.all_boundary_loop(mesh.faces):
                 new_list.extend(np.array(loop)+point_start_idx)
             boundary_point_list.append(new_list)
-            # 获取面的全局index
-            faces.append(np.array(mesh.faces)+point_start_idx)
-        faces = np.concatenate(faces,axis=0)
         boundary_points_idx = np.concatenate(boundary_point_list,axis=0)
 
-        # PART 2 按比例对具有缝合关系的点 和 不具有缝合关系的 边界点 进行采样
+        # === Allocate sample num ===
+        # Sample points with and without stitching relationships according to a ratio
 
-        # todo 仅保存位于板片边缘的缝合
+        # This option will filter out stitches where each side is not on the boundary of panel.
         if self.pcs_sample_type_stitch_only_sample_boundary:
             m0 = np.isin(stitches[:, 0], boundary_points_idx)
             m1 = np.isin(stitches[:, 1], boundary_points_idx)
-            boundary_stitch_mask = np.logical_and(m0, m1)   # 缝合两边都为边缘点
+            boundary_stitch_mask = np.logical_and(m0, m1)
             stitches = stitches[boundary_stitch_mask]
-            # print(np.sum(~boundary_stitch_mask))
 
-        # 获取点点缝合关系的映射
         stitch_map = np.zeros(shape=(len(vertices)), dtype=np.int32) - 1
         stitch_map[stitches[:, 0]] = stitches[:, 1]
         stitch_map[stitches[:, 1]] = stitches[:, 0]  # [todo]
 
-        # 所有具有缝合关系的点的index
-        stitched_vertices_idx = np.concatenate([stitches[:, 0], stitches[:, 1]], axis=0) # [todo]
-        # stitched_vertices_idx = stitches[:, 0]
-        # 所有不具有缝合关系的边界点的index
+        stitched_vertices_idx = np.concatenate([stitches[:, 0], stitches[:, 1]], axis=0)
         unstitched_vertices_idx = boundary_points_idx[
             np.array([s not in stitched_vertices_idx for s in boundary_points_idx])]
 
-        # 分配 缝合点 的采样数量
-        stitched_sample_num = int((num_points * (len(stitched_vertices_idx) / (len(stitched_vertices_idx) + len(unstitched_vertices_idx)))) / 2)
-        # unstitched_sample_num = num_points - stitched_sample_num * 2
-
-        # 计算每个Panel的采样点数量期望值
+        # Allocate the number of sampled points for each panel
         boundary_len = sum([len(b) for b in boundary_point_list])
         expect_sample_nums = np.array([int(num_points*len(b)/boundary_len) for b in boundary_point_list])
-
-        # 对于期望值过低的Panel，我们提前分配一部分采样点
         sample_num_arrangement = np.zeros(num_parts, dtype=np.int16)
-        """
-        为什么用 int(min_samplenum_prepanel * 2) 作为单个Panel预设的最小采样点数量 ?
-            * 2.5 是因为后面分配每个 Panel 的缝合点采样数量会先除以2
-            假如一个很小的 Panel 没有不缝合点，如果在这里仅分配了 min_samplenum_prepanel 个点，则只会在这个Panel上采样 min_samplenum_prepanel/2 个点
-            这大概率会导致在这个 Panel 上在最终采样的点的数量达不到 min_samplenum_prepanel 这个数量
-        因此：
-            min_expect = min_samplenum_prepanel * X>2 ，是为了尽可能的为更多可能出问题的（也就是最后采样数量可能太少的）Panel 提前分配一些采样点数量
-            pre_arranged = int(min_samplenum_prepanel * X>2)，是为了能百分之百保证采样一次就能达到每个 Panel 的采样数量都大于 min_samplenum_prepanel
-        由于 min_expect 不能设的过大（会导致给太多的Panel预分配采样点），因此依旧可能有Panel采样点数量过少，因此还是需要 check 最多 max_check_times 次
-        """
-        min_expect = min_samplenum_prepanel * 4             # 采样点的期望值低于 min_expect 的会被预分配采样点数量
-        pre_arranged = int(min_samplenum_prepanel * 3)      # 预分配的采样点数量
+        min_expect = min_samplenum_prepanel * 4
+        pre_arranged = int(min_samplenum_prepanel * 3)
         assert pre_arranged * num_parts < num_points, "min_samplenum_prepanel too large may cause error"
         sample_num_arrangement[expect_sample_nums <= min_expect] = pre_arranged
-        sample_num_arrangement[expect_sample_nums > min_expect] = int(pre_arranged/2)  # 其它的也得在这时分配一点，防止采样点数量太不平衡
-        # 提前分配的采样点
+        sample_num_arrangement[expect_sample_nums > min_expect] = int(pre_arranged/2)
         arranged_num = np.sum(sample_num_arrangement)
-
-        # 获取每个 Panel 的采样点总数
         sample_num_arrangement = np.array([int((num_points-arranged_num)*len(b)/boundary_len) for b in boundary_point_list]) + sample_num_arrangement
-        # 分配没分完的采样点
+        # Allocate the remaining points.
         for i in range(num_points - np.sum(sample_num_arrangement)):
             sample_num_arrangement[random.randint(0, num_parts - 1)]+=1
 
-        # 获取每个panel上的 缝合点 和 被缝合点 的数量
+        # Get the number of stitching and unstitching points on each panel
         panel_stitched_num = [sum(piece_id_global[stitched_vertices_idx]==i) for i in range(num_parts)]
         panel_unstitched_num = [sum(piece_id_global[unstitched_vertices_idx]==i) for i in range(num_parts)]
-        # 每个Panel上分配的 缝合点 的采样数量
+        # Get the allocated point sample number of stitching and unstitching points on each panel
         sample_num_arrangement_stitched = np.array([int((sample_num_arrangement[i] * panel_stitched_num[i] / (panel_stitched_num[i]+panel_unstitched_num[i]))/2) for i in range(num_parts)])
-        # 每个Panel上分配的 不缝合点 的采样数量
         sample_num_arrangement_unstitched = np.array([sample_num_arrangement[i]-sample_num_arrangement_stitched[i]*2 for i in range(num_parts)])
 
-        # 获取每个Panel上的 缝合点 和 不缝合点
+        # Get stitching and non-stitching points on the boundary of each panel
         stitched_list, unstitched_list = [], []
         for part_idx in range(num_parts):
             mask = piece_id_global[stitched_vertices_idx] == part_idx
@@ -476,16 +360,14 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             mask = piece_id_global[unstitched_vertices_idx] == part_idx
             unstitched_list.append(unstitched_vertices_idx[mask])
 
-        # 修正每个Panel上的 缝合点\不缝合点 的分配
-        unarranged = 0  # 多余未分配的点数量，在不缝合点转移到缝合点，且不缝合点数量为奇数时，会产生一个offset
-        # 没有不缝合点的panel，将分配的不缝合点数转移到缝合点
+        # Handle the allocation of sampled points for panels without stitching or non-stitching points
+        unarranged = 0
         for i in range(num_parts):
             if len(unstitched_list[i])==0:
                 transfer_volumn = math.floor((sample_num_arrangement_unstitched[i] + unarranged)/2)
                 unarranged = (sample_num_arrangement_unstitched[i] + unarranged)%2
                 sample_num_arrangement_stitched[i] += transfer_volumn
                 sample_num_arrangement_unstitched[i] = 0
-        # 没有缝合点的panel，将分配的缝合点数转移到不缝合点
         for i in range(num_parts):
             if len(stitched_list[i])==0:
                 transfer_volumn = sample_num_arrangement_stitched[i]*2
@@ -494,7 +376,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                     unarranged=0
                 sample_num_arrangement_unstitched[i] += transfer_volumn
                 sample_num_arrangement_stitched[i] = 0
-        # 如果依旧有未分配的点，找到分配不缝合点大于0且分配数量最少的Panel，将这个点分配给它
         if unarranged>0:
             min_idx, min_arranged = 0, 9999999
             for i in range(num_parts):
@@ -502,36 +383,26 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                     min_arranged = sample_num_arrangement_unstitched[i]
                     min_idx = i
             sample_num_arrangement_unstitched[min_idx]+=unarranged
-            unaranged = 0
 
-        # PART 3 根据上一部分计算的 采样点数量分配，来进行采样。可进行多轮采样
+        # === Sample points ===
         for check_time in range(max_check_times):
-            # === 成对采样具有缝合关系的点 ===
+            # Sample stitching points
             sample_list = []
-
             for part_idx in range(num_parts):
-                # 一个panel上的缝合点
                 part_points = stitched_list[part_idx]
-                # 采样结果加入list
-                # [todo] 可以迭代式地，让采样的分布更均匀
                 if sample_num_arrangement_stitched[part_idx]>0:
-                    # sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_stitched[part_idx])
-                    sample_result = balancedSample(len(part_points), sample_num_arrangement_stitched[part_idx], iteration=20)
+                    sample_result = balancedSample(len(part_points), sample_num_arrangement_stitched[part_idx])
                     sample_list.append(part_points[sample_result])
             stitched_sample_idx = np.concatenate(sample_list)
             stitched_sample_idx = sorted(stitched_sample_idx)
             stitched_sample_idx_cor = stitch_map[stitched_sample_idx]
 
-            # === 采样不具有缝合关系的边界点 ===
+            # Sample non-stitching points
             sample_list = []
             for part_idx in range(num_parts):
-                # 一个panel上的缝合点
                 part_points = unstitched_list[part_idx]
-                # 采样结果加入list
-                # [todo] 可以迭代式地，让采样的分布更均匀
                 if sample_num_arrangement_unstitched[part_idx]>0:
-                    # sample_result = LatinHypercubeSample(len(part_points), sample_num_arrangement_unstitched[part_idx])
-                    sample_result = balancedSample(len(part_points), sample_num_arrangement_unstitched[part_idx], iteration=20)
+                    sample_result = balancedSample(len(part_points), sample_num_arrangement_unstitched[part_idx])
                     sample_list.append(part_points[sample_result])
 
             if len(sample_list) > 0:
@@ -539,14 +410,11 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             else:
                 unstitched_sample_idx = None
 
-            # === 获得采样结果 ===
-            # 所有采样点的index
             if unstitched_sample_idx is not None:
                 all_sample_idx = np.concatenate([stitched_sample_idx, stitched_sample_idx_cor, unstitched_sample_idx], axis=0)
             else:
                 all_sample_idx = np.concatenate([stitched_sample_idx, stitched_sample_idx_cor], axis=0)
 
-            # 检查是否满足条件：每个Panel的采样点总数都大于等于min_samplenum_prepanel
             sampled_piece_id = piece_id_global[all_sample_idx]
             piece_sample_num = np.array([np.sum(sampled_piece_id==i) for i in range(num_parts)])
             if np.sum(piece_sample_num<min_samplenum_prepanel)==0:
@@ -555,49 +423,32 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                 if check_time!=max_check_times-1:
                     continue
                 else:
-                    raise ValueError(f"sample num:{np.sum(piece_sample_num<min_samplenum_prepanel)}, NUM_PC_POINTS too small in cfg")  # 如果超过最大调用次数
+                    raise ValueError(f"sample num:{np.sum(piece_sample_num<min_samplenum_prepanel)}, NUM_PC_POINTS too small in cfg")
 
-        # 在具有缝合关系的点上进行采样的数量
+        # Sample results
         stitched_sample_num = np.sum(sample_num_arrangement_stitched)
-        # 采样点中的缝合关系
         mat_gt = np.array([np.array([i, i + stitched_sample_num]) for i in range(stitched_sample_num)])
-
-        # 每个采样点属于的part
         piece_id = np.concatenate([np.array([idx]*n) for idx, n in enumerate(nps)],axis=0)[all_sample_idx]
-        # stitch_visualize(np.concatenate([stitched_sample,stitched_sample_cor,unstitched_sample],axis=0),mat_gt)
-
         sampled_points_CH =  vertices[all_sample_idx]
 
-        # PART 4 将点云大小按最BBOX的最长边归一化到[-0.5 - 0.5]，计算平均边长
-
-        # points_normalized, normalize_range = min_max_normalize(sampled_points_CH)
+        # normalize sampled pointcloud
         points_normalized, normalize_range = styleXD_normalize(sampled_points_CH)
         mean_edge_len = cal_mean_edge_len(meshes)/normalize_range
-        # pointcloud_visualize(points_normalized)
 
-        # PART 5 让采样的缝合关系满足：在index上接近的缝合关系，在位置上也尽可能接近
-
-        # 将采样点按index进行排序，这样同一个part的会凑到一块去
-        sorted_indices = np.argsort(all_sample_idx)  # 创建排序索引
+        # sort by index
+        sorted_indices = np.argsort(all_sample_idx)
         points_normalized = points_normalized[sorted_indices]
         piece_id = piece_id[sorted_indices]
-
-        # 采样边缘部分的UV，并排序
         if full_uv_info is not None:
             uv_sampled = full_uv_info[all_sample_idx]
             uv_sampled = uv_sampled[sorted_indices]
 
-        # 对缝合关系对应的两端顶点的index应用相同的排序，然后按起始点index进行降序排序
         mat_gt = stitch_indices_order(mat_gt, sorted_indices)
-
-        # 如果一个缝合关系末端顶点的index 大于 起始顶点的index，则让它们交换
         mask = mat_gt[:, 0] > mat_gt[:, 1]
         mat_gt[mask] = mat_gt[mask][:, ::-1]
-
         mat_gt = mat_gt[np.argsort(mat_gt[:, 0])]
-        # pointcloud_and_stitch_visualize(points_normalized, mat_gt)
 
-        # === 将归一化后的采样点按Panel区分 ===
+        # === segment contour-wise ===
         for i in range(len(nps)):
             pcs.append(points_normalized[piece_id==i])
         nps = np.array([len(pc) for pc in pcs])
@@ -606,19 +457,17 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             raise AssertionError("Pointcloud Sample Num Wrong.")
 
         pcs_dict = dict(
-            pcs=pcs,                    # 3D 边缘点云
-            pcs_idx=all_sample_idx,     # 每个点在原本的mesh中的idx
-            piece_id=piece_id,          # 每个点所属的panel】
-            nps=np.array(nps),          # 每个panel的点数
-            mat_gt=mat_gt,              # gt 点点缝合关系
+            pcs=pcs,                    # Sampled 3D pointcloud
+            pcs_idx=all_sample_idx,
+            piece_id=piece_id,          # Contour idx of each point
+            nps=np.array(nps),          # each panel`s point num
+            mat_gt=mat_gt,              # stitches
             mean_edge_len=mean_edge_len,
             normalize_range=normalize_range,
             panel_instance_seg=np.arange(len(nps))
         )
-        # 采样点的UV信息
         if full_uv_info is not None:
             pcs_dict["uv"] = uv_sampled
-        # 采样点的法线信息
         normals = np.concatenate([np.array(mesh.vertex_normals) for mesh in meshes], axis=0)
         sampled_normals = normals[all_sample_idx]
         pcs_dict["normal"] = sampled_normals
@@ -643,31 +492,25 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
     def shrink_meshes(self, meshes, shrink_param=0.5):
         """
-        将一个Panel上的边界点往内部缩一些
-
-        :param meshes:
-        :param shrink_param:
-        :return:
+        Shrink each boundary point of the mesh inwardly.
         """
         if shrink_param > 1 or shrink_param < 0:
             raise ValueError(f"shrink_param={shrink_param} is invalid")
 
         for mesh in meshes:
-            # 跳过太小的Panel
             if len(mesh.vertices) < 400: continue
-            # 对每个边缘点，找其不是边缘点的相邻点 ----------------------------------------------------------------------------
-            edge_points_loops = igl.all_boundary_loop(mesh.faces)  # 获取边界上的点
+            # Identify non-boundary neighbors for each boundary point
+            edge_points_loops = igl.all_boundary_loop(mesh.faces)
             all_boundary_points = np.concatenate(edge_points_loops)
-            neighbor_points = {}    # 每个边缘点的所有相邻点
-            neighbor_boundary_points = {}  # 每个边缘点的所有相邻边缘点
+            neighbor_points = {}
+            neighbor_boundary_points = {}
             for loop in edge_points_loops:
                 for p_idx, point in enumerate(loop):
-                    # 对最外面的每个边界点，找到与其相邻的点
                     neighbors = mesh.vertex_neighbors[point]
                     neighbor_points[point] = neighbors
 
                     if p_idx==0:
-                        if len(loop) == 1: neighbors_boundaey = [loop[p_idx], loop[p_idx]]  # 有些位于板片内部的单独的点
+                        if len(loop) == 1: neighbors_boundaey = [loop[p_idx], loop[p_idx]]
                         else: neighbors_boundaey = [loop[-1], loop[p_idx + 1]]
                     elif p_idx==len(loop)-1:
                         neighbors_boundaey = [loop[p_idx-1], loop[0]]
@@ -675,16 +518,14 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                         neighbors_boundaey = [loop[p_idx - 1], loop[p_idx+1]]
                     neighbor_boundary_points[point] = neighbors_boundaey
 
-
-            # 对每个边界点，和neighbor_points中的点，计算shrink后的位置 -------------------------------------------------------
-            # 先计算新位置
+            # Compute the positions of boundary points after shrinking.
             new_vertices_positions = {}
             for b_point in all_boundary_points:
 
                 neighbors_boundaey = neighbor_boundary_points[b_point]
                 neighbors_boundaey_position = mesh.vertices[neighbors_boundaey]
                 neighbors_boundaey_vector = neighbors_boundaey_position[1] - neighbors_boundaey_position[0]
-                if np.linalg.norm(neighbors_boundaey_vector)==0:  # 存在某些点，其两个相邻点是重合的，对于这种点我们不进行收缩
+                if np.linalg.norm(neighbors_boundaey_vector)==0:
                     new_vertices_positions[b_point] =  np.array(mesh.vertices[b_point])
                 else:
                     neighbors_boundaey_vector = neighbors_boundaey_vector / np.linalg.norm(neighbors_boundaey_vector)
@@ -702,13 +543,13 @@ class AllPieceMatchingDataset_stylexd(Dataset):
                                     (1 - shrink_param) * target_position)
                     new_vertices_positions[b_point] = new_position
 
-            # 再应用到mesh里
             for b_point in all_boundary_points:
                 mesh.vertices[b_point] = new_vertices_positions[b_point]
-        # 保存结果
-        # meshes_visualize(meshes, "after_shrink")
 
     def _shrink_bystitch(self, pcs, stitch_mat, piece_id, mean_edge_len):
+        """
+        Shrink pcs by stitches info
+        """
         nps = [len(pc) for pc in pcs]
 
         if isinstance(pcs, list):
@@ -721,14 +562,12 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         vec = copy(pcs_all[stitch_mat[:, 1]] - pcs_all[stitch_mat[:, 0]])
         vec2 = copy(pcs_all[stitch_mat[:, 0]] - pcs_all[stitch_mat[:, 1]])
 
-        # 每一对缝合点之间的向量
         vec = vec / (np.linalg.norm(vec, axis=1, keepdims=True) + 1e-12)
         vec2 = vec2 / (np.linalg.norm(vec2, axis=1, keepdims=True) + 1e-12)
 
-        # 在缝合的两边加的噪声
         shrink1 = vec * shrink_strength
         shrink2 = vec2 * shrink_strength
-        # 仅保留和自己板片缝的
+
         shrink1[~self_stitch_mask] = 0
         shrink2[~self_stitch_mask] = 0
 
@@ -750,35 +589,30 @@ class AllPieceMatchingDataset_stylexd(Dataset):
     def _get_pcs(self, data_folder, annotations_json_path):
         meshes = self.load_meshes(data_folder)
 
-        # 让mesh的每个边界点往内缩
+        # Shrink each boundary point of the mesh inwardly to create gaps between panels.
         if self.shrink_mesh:
             self.shrink_meshes(meshes, self.shrink_mesh_param)
 
         full_uv_info = self.load_full_uv_info(data_folder)
 
-        if self.pcs_sample_type == "boundary_mesh":
-            sample_result = self.sample_point_byBoundaryMesh(meshes, self.num_points)
-            if full_uv_info is not None:
-                sample_result["uv"] = full_uv_info
-            return sample_result
-        elif self.pcs_sample_type == "boundary_pcs":  # 不会去采样固定数量个点
-            sample_result = self.sample_point_byBoundaryPcs(meshes, self.num_points)
+        if self.pcs_sample_type == "boundary_pcs":  # inference Only
+            sample_result = self.sample_point_byBoundaryPcs(meshes)
             if full_uv_info is not None:
                 sample_result["uv"] = full_uv_info
             with open(annotations_json_path, "r", encoding="utf-8") as f:
                 ann_json = json.load(f)
             sample_result["panel_instance_seg"] = ann_json["panel_instance_seg"]
             return sample_result
-        elif self.pcs_sample_type == "stitch":
+        elif self.pcs_sample_type == "stitch":      # train val Only
             if self.num_points%2!=0:
                 raise ValueError("self.num_points should be an even number when self.pcs_sample_type==\"stitch\"")
             stitches = np.load(os.path.join(data_folder, "annotations", "stitch.npy"))
-            # stitch_visualize(np.concatenate([np.array(mesh.vertices) for mesh in meshes], axis = 0), stitch)
-            # [todo] 将来如果有空，试着从根本上解决这个问题
-            max_check_times = 10  # 最大重复采样次数
-            min_samplenum_prepanel = 4  # 单个Panel上的最少采样点数量
-            sample_result = self.sample_point_byStitch(meshes, stitches, full_uv_info, n_rings=2,
-                                                       max_check_times=max_check_times, min_samplenum_prepanel=min_samplenum_prepanel)
+            max_check_times = 10        # Maximum number of resampling attempts
+            min_samplenum_prepanel = 4  # Minimum number of sampled points on a single panel
+            sample_result = self.sample_point_byStitch(
+                meshes, stitches, full_uv_info, n_rings=2,
+                max_check_times=max_check_times, min_samplenum_prepanel=min_samplenum_prepanel
+            )
 
             return sample_result
         else:
@@ -786,21 +620,20 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
 
     def __getitem__(self, index):
-        # 获取所需路径 ------------------------------------------------------------------------------------------------
+        # === get paths ===
         mesh_file_path = self.data_list[index]
-
         try:
             garment_json_path = glob(os.path.join(mesh_file_path, "annotations", "garment*.json"))[0]
             garment_json_path = garment_json_path if os.path.exists(garment_json_path) else ""
         except Exception:
             garment_json_path = ""
-
         annotations_json_path = os.path.join(mesh_file_path, "annotations", "annotations.json")
         annotations_json_path = annotations_json_path if os.path.exists(annotations_json_path) else ""
 
-        # 进行采样 ---------------------------------------------------------------------------------------------------
+        # === sample pointcloud ===
         sample_result= self._get_pcs(mesh_file_path, annotations_json_path)
         pcs = sample_result["pcs"]
+        num_parts = len(pcs)
         nps = sample_result["nps"]
         mat_gt = sample_result["mat_gt"]
         piece_id = sample_result["piece_id"]
@@ -808,63 +641,39 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         normalize_range = sample_result["normalize_range"]
         panel_instance_seg = sample_result["panel_instance_seg"]
 
-        # 沿着缝合线，将板片收缩一些
+        # Shrink pcs by stitches info
         if self.shrink_bystitch:
             pcs = self._shrink_bystitch(pcs, mat_gt, piece_id, mean_edge_len)
-        # pointcloud_and_stitch_visualize(pcs, mat_gt)
-        # 对uv进行和pc相同的normalize
+
+        # normalize uv
         if "uv" in sample_result.keys():
             uv = sample_result["uv"]
             uv = styleXD_normalize(uv)[0]
         else: uv=None
         if "normal" in sample_result.keys():
-            # [todo] 添加normal的处理
+            # [todo] Normal processing (Model input like xyz, uv).
             normal = sample_result["normal"]
-            # raise NotImplementedError()
 
-        # pointcloud_visualize(np.concatenate(pcs), colormap="tab10", colornum=2)
-        num_parts = len(pcs)
-
-        cur_pcs, cur_pcs_gt = [], []
-        # cur_quat, cur_trans = [], []
-
-        points_end_idxs = np.cumsum(nps)
-
+        # === panel noise ===
+        cur_pcs = []
         for idx, (pc, n_p) in enumerate(zip(pcs, nps)):
-            if idx == 0: point_start_idx = 0
-            else: point_start_idx = points_end_idxs[idx - 1]
-            # point_end_idx = points_end_idxs[idx]
-
-            pc_gt = pc.copy()
+            # Add noise on panel`s position
             if self.panel_noise_type == "default":
-                # [todo] 默认的panel noise方法需要考虑到normal
                 pc, gt_trans, gt_quat = self._random_SRM_default(pc, pcs, idx, mean_edge_len)
             elif self.panel_noise_type == "bbox":
                 pc = self._random_SM_byBbox(pc)
             else:
                 raise NotImplementedError("")
-
             cur_pcs.append(pc)
-            cur_pcs_gt.append(pc_gt)
-            # cur_quat.append(gt_quat)
-            # cur_trans.append(gt_trans)
-
         cur_pcs = np.concatenate(cur_pcs).astype(np.float32)  # [N_sum, 3]
-        cur_pcs_gt = np.concatenate(cur_pcs_gt).astype(np.float32)  # [N_sum, 3]
-        # pointcloud_visualize(cur_pcs)
 
-        # cur_quat = self._pad_data(np.stack(cur_quat, axis=0), self.max_num_part).astype(np.float32)  # [P, 4]
-        # cur_trans = self._pad_data(np.stack(cur_trans, axis=0), self.max_num_part).astype(np.float32)  # [P, 3]
-
-        # pointcloud_and_stitch_visualize(cur_pcs,mat_gt)
         n_pcs = self._pad_data(np.array(nps), self.max_num_part).astype(np.int64)  # [P]
         valids = np.zeros(self.max_num_part, dtype=np.float32)
         valids[:num_parts] = 1.0
         panel_instance_seg = self._pad_data(np.array(panel_instance_seg), self.max_num_part, -1).astype(np.int64)
         data_dict = {
-            "pcs": cur_pcs,                             # pointclouds after random transformation
-            # "pcs_gt": cur_pcs_gt,                       # pointclouds before random transformation
-            "n_pcs": n_pcs,                             # point num of each part
+            "pcs": cur_pcs,             # pointclouds after random transformation
+            "n_pcs": n_pcs,             # point num of each part
             "num_parts": num_parts,
             "part_valids": valids,
             "data_id": index,
@@ -876,113 +685,75 @@ class AllPieceMatchingDataset_stylexd(Dataset):
             "panel_instance_seg": panel_instance_seg
         }
         if uv is not None:
-            # 添加一列零，不然pointnet好像提取不了特征
             uv = np.hstack((uv, np.zeros((uv.shape[0], 1))))
             data_dict["uv"] = uv
 
-        # 添加缝合噪声 ---------------------------------------------------------------------------------------------
-        if self.mode == "train" or self.mode == "val" or self.mode == "test":
-            # pointcloud_visualize(cur_pcs)
-            # pointcloud_visualize([cur_pcs[piece_id==i] for i in range(len(pcs))])
-            # pointcloud_and_stitch_visualize(cur_pcs, mat_gt)
-            pass
-            # === 在位置变化后，加一次缝合噪声 ===
+        # === Add stitch noise ===
+        if self.mode == "train" or self.mode == "val":
             if self.use_stitch_noise:
-                def smooth_using_convolution(noise, k=3):
-                    k = [1] * k
-                    kernel = np.array(k) / sum(k)  # 平滑卷积核
-                    smoothed_noise = convolve1d(noise, kernel, axis=0, mode='nearest')
-                    return smoothed_noise
-
-                # 随机噪声强度
+                # Random noise strength
                 rand_param = random.random()*0.8+0.2
                 stitch_noise_strength_base = (self.stitch_noise_random_min * rand_param +
                                               self.stitch_noise_random_max * (1-rand_param))
                 stitch_noise_strength_base *= self.stitch_noise_strength
 
-                # === 对缝合点 按缝合线加远离噪声 ===
-                stitch_noise_strength1 = stitch_noise_strength_base
+                # Stitching direction
                 vec =  copy(cur_pcs[mat_gt[:, 1]] - cur_pcs[mat_gt[:,0]])
                 vec2 = copy(cur_pcs[mat_gt[:, 0]] - cur_pcs[mat_gt[:, 1]])
-                # 每一对缝合点之间的向量
                 vec = vec/(np.linalg.norm(vec, axis=1, keepdims=True) + 1e-12)
                 vec2 = vec2/(np.linalg.norm(vec2, axis=1, keepdims=True) + 1e-12)
 
-                # 在缝合的两边加的噪声
+                # 1. Add noise along the point-to-point stitching direction to generate non-smooth panel`s boundary
+                stitch_noise_strength1 = stitch_noise_strength_base
                 stitch_noise1_strength_per_point1 = np.random.rand(len(mat_gt), 1) * 0.9 + 0.1
-                # for i in range(1): stitch_noise1_strength_per_point1 = smooth_using_convolution(stitch_noise1_strength_per_point1, k=3)
                 stitch_noise2_strength_per_point2 = np.random.rand(len(mat_gt), 1) * 0.9 + 0.1
-                # for i in range(1): stitch_noise2_strength_per_point2 = smooth_using_convolution(stitch_noise2_strength_per_point2, k=3)
                 noise1 = vec * stitch_noise1_strength_per_point1 * stitch_noise_strength1 * mean_edge_len
                 noise2 = vec2 * stitch_noise2_strength_per_point2 * stitch_noise_strength1 * mean_edge_len
-                # cur_pcs的shape为Mx3，是所有点的位置
-                # noise1 = smooth_using_convolution(noise1, k=7)
-                # noise2 = smooth_using_convolution(noise2, k=7)
                 cur_pcs[mat_gt[:, 1]] += noise1
                 cur_pcs[mat_gt[:, 0]] += noise2
 
-                # === 对不缝合的点加随机噪声 ===
-                """
-                2025_05:
-                stitch_noise_strength3 = stitch_noise_strength_base * (random.random()*1+0.5)
-                """
-                # stitch_noise_strength3 = stitch_noise_strength_base * (random.random()*0.1+0.1)
-                stitch_noise_strength3 = stitch_noise_strength_base * (random.random() * 1 + 0.5)
+                # 2. Add noise on unstitching points
+                stitch_noise_strength2 = stitch_noise_strength_base * (random.random() * 1 + 0.5)
                 unstitch_mask = np.zeros(cur_pcs.shape[0])
                 unstitch_mask[mat_gt[:, 0]] = 1
                 unstitch_mask[mat_gt[:, 1]] = 1
                 unstitch_mask = unstitch_mask == 0
-                noise3 = (np.random.rand(np.sum(unstitch_mask), 3)*2.-1.)
-                for _ in range(1): noise3 = smooth_using_convolution(noise3, k=3)
+                noise2 = (np.random.rand(np.sum(unstitch_mask), 3)*2.-1.)
+                for _ in range(1): noise2 = smooth_using_convolution(noise2, k=3)
+                noise2 = noise2 / (np.linalg.norm(noise2, axis=1, keepdims=True) + 1e-6)
+                noise2 = noise2 * stitch_noise_strength2 * mean_edge_len
+                cur_pcs[unstitch_mask] += noise2
+
+                # 3. Add noise (very small) on stitching points
+                stitch_noise_strength3 = stitch_noise_strength_base * (random.random()*0.2+0.1)
+                noise3 = (np.random.rand(len(mat_gt), 3)*2.-1.)
                 noise3 = noise3 / (np.linalg.norm(noise3, axis=1, keepdims=True) + 1e-6)
                 noise3 = noise3 * stitch_noise_strength3 * mean_edge_len
-                cur_pcs[unstitch_mask] += noise3
+                cur_pcs[mat_gt[:, 0]] += noise3
+                cur_pcs[mat_gt[:, 1]] += noise3
 
-                # === 对缝合的点的两端加相同噪声（只加一点点） ===
-                stitch_noise_strength4 = stitch_noise_strength_base * (random.random()*0.2+0.1)
-                noise4 = (np.random.rand(len(mat_gt), 3)*2.-1.)
-                noise4 = noise4 / (np.linalg.norm(noise4, axis=1, keepdims=True) + 1e-6)
-                noise4 = noise4 * stitch_noise_strength4 * mean_edge_len
-                # for _ in range(3): noise4 = smooth_using_convolution(noise4)
-                cur_pcs[mat_gt[:, 0]] += noise4
-                cur_pcs[mat_gt[:, 1]] += noise4
-
-                # # === 对缝合的点再加点噪声（只加一点点） ===
-                # stitch_mask = ~unstitch_mask
-                # noise5 = (np.random.rand(np.sum(stitch_mask), 3) * 2. - 1.)
-                # noise5 = noise5 / (np.linalg.norm(noise5, axis=1, keepdims=True) + 1e-6)
-                # noise5 = noise5 * stitch_noise_strength * mean_edge_len * 0.2
-                # cur_pcs[stitch_mask] += noise5
-
-            # pointcloud_visualize(cur_pcs)
-            # pointcloud_visualize([cur_pcs[piece_id==i] for i in range(len(pcs))])
-            # pointcloud_and_stitch_visualize(cur_pcs, mat_gt)
-
-            # GT 缝合关系
+            # GT point 2 point stitching
             mat_gt = stitch_indices2mat(self.num_points, mat_gt)
             data_dict["mat_gt"] = mat_gt
 
-            # 平均缝合长度
+            # mean stitching distance
             Dis = np.sqrt(np.sum(((cur_pcs[:,None,:] - cur_pcs[None,:,:])**2), axis=-1))
             data_dict["mean_stitch_dis_gt"] = np.mean(Dis[mat_gt == 1])
         else:
             pass
         return data_dict
 
+
 def build_stylexd_dataloader_train_val(cfg, shuffle_val_loader=False):
     if cfg.NUM_WORKERS > 4:
-        print("Too much workers may cause segment fault.")
+        print("Too much workers may cause fault.")
 
-
-    # train、val用的是StyleXD带l的obj文件，用stitch采样
-    # TRAIN DATASET ----------------------------------------------------------------------------------------------------
+    # === TRAIN DATASET ===
     data_dict = dict(
         mode="train",
         data_dir=cfg.DATA.DATA_DIR,
-        data_keys=cfg.DATA.DATA_KEYS,
 
         num_points=cfg.DATA.NUM_PC_POINTS,
-        random_sample_num=cfg.DATA.RANDOM_SAMPLE_NUM,
         min_num_part=cfg.DATA.MIN_NUM_PART,
         max_num_part=cfg.DATA.MAX_NUM_PART,
 
@@ -999,15 +770,11 @@ def build_stylexd_dataloader_train_val(cfg, shuffle_val_loader=False):
         pcs_sample_type=cfg.DATA.PCS_SAMPLE_TYPE.TRAIN,
         pcs_sample_type_stitch_only_sample_boundary=cfg.DATA.PCS_SAMPLE_TYPE.STITCH.ONLY_SAMPLE_BOUNDARY,
 
-        pcs_noise_type=cfg.DATA.PCS_NOISE_TYPE,
-        pcs_noise_strength=cfg.DATA.PCS_NOISE_STRENGTH,
-
         panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.TRAIN,
         scale_range=cfg.DATA.SCALE_RANGE,
         rot_range=cfg.DATA.ROT_RANGE,
         trans_range=cfg.DATA.TRANS_RANGE,
         bbox_noise_strength=cfg.DATA.BBOX_NOISE_STRENGTH,
-        overfit=cfg.DATA.OVERFIT,
         min_part_point=cfg.DATA.MIN_PART_POINT,
 
         read_uv=cfg.MODEL.USE_UV_FEATURE,
@@ -1025,8 +792,7 @@ def build_stylexd_dataloader_train_val(cfg, shuffle_val_loader=False):
         persistent_workers=(cfg.NUM_WORKERS > 0),
     )
 
-    # VAL DATASET ------------------------------------------------------------------------------------------------------
-    # data_dict["shuffle_parts"] = False
+    # === VAL DATASET ===
     data_dict["mode"] = "val"
     data_dict["pcs_sample_type"] = cfg.DATA.PCS_SAMPLE_TYPE.VAL
     data_dict["panel_noise_type"] = cfg.DATA.PANEL_NOISE_TYPE.VAL
@@ -1047,53 +813,14 @@ def build_stylexd_dataloader_train_val(cfg, shuffle_val_loader=False):
     )
     return train_loader, val_loader
 
-# def build_stylexd_dataloader_test(cfg):
-#     # test用的是董远生成的不带l的obj文件，用边界点采样法
-#     data_dict = dict(
-#         mode="test",
-#         data_dir=cfg.DATA.DATA_DIR,
-#         data_keys=cfg.DATA.DATA_KEYS,
-#         data_types=cfg.DATA.DATA_TYPES.TEST,
-#
-#         num_points=cfg.DATA.NUM_PC_POINTS,
-#         min_num_part=cfg.DATA.MIN_NUM_PART,
-#         max_num_part=cfg.DATA.MAX_NUM_PART,
-#
-#         shrink_mesh=cfg.DATA.SHRINK_MESH.TEST,
-#         shrink_mesh_param=cfg.DATA.SHRINK_MESH_PARAM.TEST,
-#
-#         pcs_sample_type=cfg.DATA.PCS_SAMPLE_TYPE.TEST,
-#         pcs_noise_type=cfg.DATA.PCS_NOISE_TYPE,
-#         pcs_noise_strength=cfg.DATA.PCS_NOISE_STRENGTH,
-#         panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.TEST,
-#
-#         scale_range=cfg.DATA.SCALE_RANGE,
-#         rot_range=cfg.DATA.ROT_RANGE,
-#         trans_range=cfg.DATA.TRANS_RANGE,
-#
-#         overfit=cfg.DATA.OVERFIT,
-#         min_part_point=cfg.DATA.MIN_PART_POINT,
-#
-#         read_uv=True,
-#     )
-#     test_set = AllPieceMatchingDataset_stylexd(**data_dict)
-#     test_loader = DataLoader(
-#         dataset=test_set,
-#         batch_size=1,
-#         shuffle=cfg.DATA.SHUFFLE,
-#         num_workers=1,
-#         pin_memory=True,
-#         drop_last=False,
-#         persistent_workers=(cfg.NUM_WORKERS > 0),
-#     )
-#     return test_loader
 
-def build_stylexd_dataloader_inference(cfg):
-    # test用的是董远生成的不带l的obj文件，用边界点采样法
+def build_stylexd_dataloader_inference(cfg, inference_data_list=None):
+    """
+    used to load generated Garmage
+    """
     data_dict = dict(
         mode="inference",
         data_dir=cfg.DATA.DATA_DIR,
-        data_keys=cfg.DATA.DATA_KEYS,
         data_types=cfg.DATA.DATA_TYPES.INFERENCE,
 
         num_points=cfg.DATA.NUM_PC_POINTS,
@@ -1108,21 +835,18 @@ def build_stylexd_dataloader_inference(cfg):
         pcs_sample_type=cfg.DATA.PCS_SAMPLE_TYPE.INFERENCE,
         pcs_sample_type_stitch_only_sample_boundary=False,
 
-        pcs_noise_type=cfg.DATA.PCS_NOISE_TYPE,
-        pcs_noise_strength=cfg.DATA.PCS_NOISE_STRENGTH,
-
         panel_noise_type=cfg.DATA.PANEL_NOISE_TYPE.INFERENCE,
         scale_range=cfg.DATA.SCALE_RANGE,
         rot_range=cfg.DATA.ROT_RANGE,
         trans_range=cfg.DATA.TRANS_RANGE,
         bbox_noise_strength=cfg.DATA.BBOX_NOISE_STRENGTH,
 
-        overfit=cfg.DATA.OVERFIT,
         min_part_point=cfg.DATA.MIN_PART_POINT,
 
         read_uv = True,
 
         dataset_split_dir=cfg.DATA.DATASET_SPLIT_DIR,
+        inference_data_list=inference_data_list,
     )
     inference_mode_set = AllPieceMatchingDataset_stylexd(**data_dict)
     inference_loader = DataLoader(

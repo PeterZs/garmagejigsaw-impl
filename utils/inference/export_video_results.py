@@ -2,16 +2,17 @@ import os
 import pickle
 from glob import glob
 
-import torch
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.colors import to_hex
 from utils.utils import _denormalize_pts
-from utils import (pointcloud_visualize,
-                   pointcloud_and_stitch_logits_visualize,
-                   pointcloud_and_edge_visualize,
-                   draw_bbox_geometry,
-                   get_export_config)
+from utils import (
+    pointcloud_visualize,
+    pointcloud_and_stitch_logits_visualize,
+    draw_bbox_geometry,
+    get_export_config
+)
+
 
 def export_video_results(batch, inf_rst,
                        stitch_pcs, unstitch_pcs,
@@ -66,31 +67,3 @@ def export_video_results(batch, inf_rst,
                                            stitch_indices, logits, colormap='bwr', colornum=2, color_norm=[0, 1],
                                            title=f"predict pcs classify",
                                            export_data_config=get_export_config(os.path.join(output_dir, "PC_and_stitch_vis", f"{data_id}".zfill(5)), pic_num=vid_len))
-
-    # 边拟合（不重要了，后面不用生产这个视频）
-    # import json
-    # with open(batch['annotations_json_path'][0], "r", encoding="utf-8") as f:
-    #     ann = json.load(f)
-    #     edge_approx = ann["edge_approx"]
-    #     contour_nes = ann['contour_nes']
-    # n_pcs = batch["n_pcs"][0]
-    #
-    # vertices_list = []
-    # edge_list = []
-    # n_pcs_cumsum = torch.cumsum(n_pcs[:num_parts], dim=-1)
-    # contour_nes_cumsum = torch.cumsum(torch.Tensor(contour_nes), dim=-1, dtype=torch.int64)
-    # for contour_idx in range(num_parts):
-    #     if contour_idx == 0:
-    #         pcs_start = 0
-    #         edge_start = 0
-    #     else:
-    #         pcs_start = n_pcs_cumsum[contour_idx - 1]
-    #         edge_start = contour_nes_cumsum[contour_idx - 1]
-    #     pcs_end = n_pcs_cumsum[contour_idx]
-    #     edge_end = contour_nes_cumsum[contour_idx]
-    #     vertices_list.append(pcs[pcs_start:pcs_end])
-    #     edge_list.append(edge_approx[edge_start:edge_end])
-    #
-    # pointcloud_and_edge_visualize(vertices_list, edge_list, contour_nes,
-    #                               title=f"",
-    #                               export_data_config=get_export_config(os.path.join("_tmp/PC_and_approx_vis", f"{data_id}".zfill(5)), pic_num=vid_len))

@@ -1,10 +1,13 @@
 import numpy as np
 
-# calculate mean edge length of a list of mesh.
-def cal_mean_edge_len(meshes:list):
-    # 计算平均边长
-    v_el, v_er = [], []
 
+def cal_mean_edge_len(meshes:list):
+    """
+    calculate mean edge length of a list of mesh.
+    :param meshes:
+    :return:
+    """
+    v_el, v_er = [], []
     try:
         for mesh in meshes:
             edges = np.array(mesh.edges)
@@ -25,31 +28,8 @@ def cal_mean_edge_len(meshes:list):
         v_er = np.concatenate(v_er, axis=0)
         mean_edge_len = np.mean(np.sqrt(np.sum((v_el - v_er) ** 2, axis=1)))
     except:
-        # 这个数字是从14000多个obj文件中统计得到的
+        # get by statistics
         mean_edge_len = 5.937708012501726
 
     return  mean_edge_len
 
-
-def compute_adjacency_list(faces, num_vertices):
-    adjacency_list = [[] for _ in range(num_vertices)]
-
-    for face in faces:
-        i, j, k = face
-
-        if j not in adjacency_list[i]:
-            adjacency_list[i].append(j)
-        if k not in adjacency_list[i]:
-            adjacency_list[i].append(k)
-
-        if i not in adjacency_list[j]:
-            adjacency_list[j].append(i)
-        if k not in adjacency_list[j]:
-            adjacency_list[j].append(k)
-
-        if i not in adjacency_list[k]:
-            adjacency_list[k].append(i)
-        if j not in adjacency_list[k]:
-            adjacency_list[k].append(j)
-
-    return adjacency_list

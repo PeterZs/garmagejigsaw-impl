@@ -1,15 +1,12 @@
-# 用于将首位相连的（与另一个pointcloud_and_edge_visualize.py的唯一区别）拟合边进行可视化
-
-import math
 import os
-import os.path
+import math
 from copy import deepcopy
 from typing import List
 
+import torch
 import numpy as np
 import matplotlib.colors as mcolors
 import plotly.graph_objects as go
-import torch
 from matplotlib import pyplot as plt
 
 
@@ -17,7 +14,6 @@ def pointcloud_and_edge_visualize(vertices:np.array, edge_approx, contour_nes, t
                                    export_data_config=None):
 
     vertices = deepcopy(vertices)
-
     if isinstance(vertices,torch.Tensor):
         vertices = vertices.detach().cpu().numpy()
     if isinstance(vertices, list):
@@ -31,7 +27,6 @@ def pointcloud_and_edge_visualize(vertices:np.array, edge_approx, contour_nes, t
     if not isinstance(vertices,List) and vertices.ndim==2:
         vertices = vertices.reshape(1,-1,3)
 
-
     if not export_data_config:
         point_size = 6
         # if show_edge_start: start_point_size = point_size * 2
@@ -42,16 +37,12 @@ def pointcloud_and_edge_visualize(vertices:np.array, edge_approx, contour_nes, t
         line_width = 10
 
 
-    # 场景
     fig = go.Figure()
 
     all_coords = np.concatenate(vertices, axis=0)
 
     min_val = np.min(all_coords)
     max_val = np.max(all_coords)
-    # # 定义颜色映射
-    # colors = cm.get_cmap('tab20', 32)
-    # color_norm = mcolors.Normalize(vmin=0, vmax=10)
 
     boundary_color = '#169df7'
     part_colors = plt.get_cmap('coolwarm', len(vertices))
@@ -79,13 +70,12 @@ def pointcloud_and_edge_visualize(vertices:np.array, edge_approx, contour_nes, t
             x_line = np.array([e_p[0][0], e_p[1][0]])
             y_line = np.array([e_p[0][1], e_p[1][1]])
             z_line = np.array([e_p[0][2], e_p[1][2]])
-            # 添加一条线段，连接点A和点B
             fig.add_trace(go.Scatter3d(
                 x=x_line, y=y_line, z=z_line,
                 mode='lines',
                 line=dict(
-                    color=color,  # 线段颜色
-                    width=line_width  # 线段宽度
+                    color=color,
+                    width=line_width
                 )
                 , showlegend=False
             ))
@@ -99,70 +89,70 @@ def pointcloud_and_edge_visualize(vertices:np.array, edge_approx, contour_nes, t
         eye=dict(x=0, y=0, z=1.5)
     )
     fig.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)',  # 整个图表背景透明
-        plot_bgcolor='rgba(0,0,0,0)'  # 绘图区域背景透明
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
     )
     fig.update_layout(
         scene=dict(
             xaxis=dict(
                 title='X Axis',
                 range=[min_val, max_val],
-                showgrid=False,  # 隐藏网格线
-                showticklabels=False,  # 隐藏刻度标签
+                showgrid=False,
+                showticklabels=False,
                 zeroline=False,
-                visible=False  # 隐藏以上所有，和其它的
+                visible=False
             ),
             yaxis=dict(
                 title='Y Axis',
                 range=[min_val, max_val],
-                showgrid=False,  # 隐藏网格线
-                showticklabels=False,  # 隐藏刻度标签
+                showgrid=False,
+                showticklabels=False,
                 zeroline=False,
-                visible=False  # 隐藏以上所有，和其它的
+                visible=False
             ),
             zaxis=dict(
                 title='Z Axis',
                 range=[min_val, max_val],
-                showgrid=False,  # 隐藏网格线
-                showticklabels=False,  # 隐藏刻度标签
+                showgrid=False,
+                showticklabels=False,
                 zeroline=False,
-                visible=False  # 隐藏以上所有，和其它的
+                visible=False
             ),
-            aspectmode='cube'  # 确保各个轴的比例相同
+            aspectmode='cube'
         ),
         title=title,
         scene_camera=camera
     )
 
-    # 绕着人旋转一圈，并保存图片 --------------------------------------------------------------------------------------------
+    # === exporet rotate video ===
     if export_data_config:
         fig.update_layout(
             scene=dict(
                 xaxis=dict(
                     title='X Axis',
                     range=[min_val, max_val],
-                    showgrid = False,  # 隐藏网格线
-                    showticklabels = False,  # 隐藏刻度标签
+                    showgrid = False,
+                    showticklabels = False,
                     zeroline = False,
-                    visible=False  # 隐藏以上所有，和其它的
+                    visible=False
                 ),
                 yaxis=dict(
                     title='Y Axis',
                     range=[min_val, max_val],
-                    showgrid = False,  # 隐藏网格线
-                    showticklabels = False,  # 隐藏刻度标签
+                    showgrid = False,
+                    showticklabels = False,
                     zeroline = False,
-                    visible=False  # 隐藏以上所有，和其它的
+                    visible=False
                 ),
                 zaxis=dict(
                     title='Z Axis',
                     range=[min_val, max_val],
-                    showgrid = False,  # 隐藏网格线
-                    showticklabels = False,  # 隐藏刻度标签
+                    showgrid = False,
+                    showticklabels = False,
                     zeroline=False,
-                    visible=False  # 隐藏以上所有，和其它的
+                    visible=False
                 ),
-                aspectmode='cube'  # 确保各个轴的比例相同
+                aspectmode='cube'
             ),
             title=""
         )
@@ -233,6 +223,5 @@ def pointcloud_and_edge_visualize(vertices:np.array, edge_approx, contour_nes, t
             fig.write_image(img_path, width=1920, height=1920, scale=2)
             # fig.show()
 
-    # 显示图形
     if export_data_config is None:
         fig.show("browser")

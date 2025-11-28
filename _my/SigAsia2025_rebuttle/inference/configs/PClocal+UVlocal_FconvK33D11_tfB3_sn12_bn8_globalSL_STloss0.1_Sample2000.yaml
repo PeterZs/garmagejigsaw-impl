@@ -1,0 +1,102 @@
+MODEL_NAME: jigsaw_StyleXD  # wandb run name
+MODULE: jigsaw_stylexd  # model build
+
+PROJECT: jigsaw  # wandb project name
+
+
+WEIGHT_FILE: pretrained/train_on_Q4_feature_conv/PClocal+UVlocal_FconvK33D11_tfB3_sn12_bn8_globalSL_STloss0.1_Sample2000/model_save/model_epoch=194.ckpt
+
+RESUME: false
+WANDB:
+  ID: 0v9nor32
+
+GPUS: [0]
+BATCH_SIZE: 1
+NUM_WORKERS: 1
+
+TRAIN:
+  NUM_EPOCHS: 250
+  LR: 0.001
+  WEIGHT_DECAY: 0.
+  WARMUP_RATIO: 0.
+  LR_SCHEDULER: 'cosine'
+  LR_DECAY: 100.
+  VAL_EVERY: 5
+
+MODEL:
+  USE_POINT_FEATURE: True   Whether to extract point features
+  USE_LOCAL_POINT_FEATURE: True    
+  USE_GLOBAL_POINT_FEATURE: False  
+  USE_UV_FEATURE: True      # Whether to extract uv features
+  USE_LOCAL_UV_FEATURE: True       
+  USE_GLOBAL_UV_FEATURE: False     
+
+  FEATURE_CONV:  # Feature conv before Pointtransformer
+    USE_FEATURE_CONV: True
+    TYPE: "default"
+    LAYER_NUM: 1
+    KERNEL_SIZE: 3
+    DILATION: 1
+
+  FEATURE_CONV_2:  # Feature conv after Pointtransformer
+    USE_FEATURE_CONV: False
+    TYPE: "custom"
+    LAYER_NUM: 1
+    KERNEL_SIZE: 3
+    DILATION: 1
+
+  # PointTransformer
+  TF_LAYER_NUM: 3  # Layer\Block num of PointTransformer
+  USE_TF_BLOCK: True  
+  PC_CLS_THRESHOLD: 0.5
+  LOSS:
+    w_cls_loss: 1.0
+    w_mat_loss: 0.0
+
+CALLBACK:
+  CHECKPOINT_MONITOR: val/mat_f1
+  CHECKPOINT_MODE: max
+
+DATA:
+  DATA_DIR: "data/stylexd_jigsaw"  # dir path with subdir "train" and "val"
+  DATA_TYPES:
+    INFERENCE: ["Garmage_SigAsia2025_Rebuttle/SSR_GarmageNet_train_on_GCDMM"]   # Garmage256_caption_editing_demo_generated
+
+  NUM_PC_POINTS: 3000
+
+  SHUFFLE: False
+
+  MAX_NUM_PART: 64
+  MIN_PART_POINT: 10
+
+  PCS_SAMPLE_TYPE:
+    TRAIN: stitch
+    VAL: stitch
+    INFERENCE: boundary_pcs
+
+  SHRINK_MESH:
+    TRAIN: True
+    VAL: False
+    INFERENCE: False
+  SHRINK_MESH_PARAM:
+    TRAIN: 1.
+    VAL: 1.
+    INFERENCE: 1.
+
+
+  PCS_NOISE_STRENGTH: 0.0
+  USE_STITCH_NOISE: True  # Stitching noise for augment
+  STITCH_NOISE_STRENGTH: 12.
+  STITCH_NOISE_RANDOM_RANGE: [-1., 1.]
+
+  PANEL_NOISE_TYPE:  # Panel noise for augment
+    TRAIN: bbox
+    VAL: bbox
+    INFERENCE: default
+  SCALE_RANGE: 0.
+  ROT_RANGE: 0.
+  TRANS_RANGE: 0.
+
+# STATS is for eval
+STATS: "./results/jigsaw_4x4_128_512_250e_cosine_everyday/stats/eval"
+

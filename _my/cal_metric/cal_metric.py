@@ -1,45 +1,36 @@
 # 本代码用于计算论文中需要的metric
 import os
-import concurrent
 import json
-import time
 
 import torch
+import threading
+from functools import wraps
 
 from model import build_model
 from dataset import build_stylexd_dataloader_train_val
-from utils import  to_device, get_pointstitch, stitch_mat2indices # , pointstitch_2_edgestitch2
+from utils import  to_device, get_pointstitch, stitch_mat2indices
 from _my.cal_metric.utils_cal_metric.ps2es4eval import ps2es4eval
-import multiprocessing
-from utils import pointcloud_visualize, pointcloud_and_stitch_visualize, pointcloud_and_stitch_logits_visualize, composite_visualize
-# from utils.inference.save_result import save_result
-import threading
-import time
-from functools import wraps
 
 def timeout(seconds):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # 定义一个事件来控制超时
             timeout_event = threading.Event()
 
-            # 创建一个线程来运行目标函数
             def run():
                 try:
                     result[0] = func(*args, **kwargs)
                 except Exception as e:
                     result[0] = e
                 finally:
-                    timeout_event.set()  # 标记函数完成
+                    timeout_event.set()
 
-            result = [None]  # 用列表存储结果，因为线程中变量需要可变对象
+            result = [None]
             thread = threading.Thread(target=run)
             thread.start()
 
-            # 等待指定的时间
             if not timeout_event.wait(timeout=seconds):
-                raise TimeoutError(f"方法 {func.__name__} 运行超过 {seconds} 秒")
+                raise TimeoutError(f"Function {func.__name__} run more than {seconds} seconds.")
             if isinstance(result[0], Exception):
                 raise result[0]
             return result[0]
@@ -63,12 +54,11 @@ def cal_metric_topology(gt_, pred_):
     G_gt.add_edges_from(gt_.tolist())
 
     G_pred = nx.Graph()
-    G_pred.add_edges_from(pred_.tolist())  # 误预测了 (3,4)
+    G_pred.add_edges_from(pred_.tolist())
 
-    # 获取邻接矩阵
     adj_gt = nx.to_numpy_array(G_gt, nodelist=sorted(G_gt.nodes()))
     adj_pred = nx.to_numpy_array(G_pred, nodelist=sorted(G_gt.nodes()))
-    # 计算 Precision、Recall、F1
+
     acc = accuracy_score(adj_gt.flatten(), adj_pred.flatten())
     precision = precision_score(adj_gt.flatten(), adj_pred.flatten())
     recall = recall_score(adj_gt.flatten(), adj_pred.flatten())
@@ -82,7 +72,7 @@ if __name__ == "__main__":
     from utils.config import cfg
     from utils.parse_args import parse_args
 
-    args = parse_args("Jigsaw")
+    args = parse_args("GarmageJigsaw")
 
     model_save_path = cfg.MODEL_SAVE_PATH
     output_path = cfg.OUTPUT_PATH
@@ -91,8 +81,6 @@ if __name__ == "__main__":
 
     cfg.DATA.SHUFFLE = True
     _, val_loader = build_stylexd_dataloader_train_val(cfg)
-
-
 
     metric_dict = {"PRECISION_CLS":[], "RECALL_CLS":[], "PRECISION_STITCH":[], "RECALL_STITCH":[], "STITCH_AMD":[],
                    "TOPOLOGHY_ACC_PS":[], "TOPOLOGHY_PRECISION_PS":[], "TOPOLOGHY_RECALL_PS":[], "TOPOLOGHY_F1_PS":[], "TOPOLOGHY_GED_PS":[],
@@ -113,7 +101,7 @@ if __name__ == "__main__":
         pc_cls = inf_rst["pc_cls"]
         threshold = cfg.MODEL.PC_CLS_THRESHOLD
 
-        # 计算点分类的metrics ------------------------------------------------------------------------------------
+        # compute point classification metrics
         pc_cls_ = pc_cls.squeeze(-1)
         pc_cls_gt = (torch.sum(mat_gt[:, :N_point] + mat_gt[:, :N_point].transpose(-1, -2),
                                dim=-1) == 1) * 1.0
@@ -126,12 +114,11 @@ if __name__ == "__main__":
         TN_CLS = torch.sum(torch.sum(indices[pc_cls_gt == 0] * 1))
         indices = pc_cls_ < threshold
         FN_CLS = torch.sum(torch.sum((indices[pc_cls_gt == 0] == False) * 1))
-        # === Precision和Recall ===
+
         PRECISION_CLS = TP_CLS / (TP_CLS + FP_CLS + 1e-13)
         RECALL_CLS = TP_CLS / (TP_CLS + FN_CLS + 1e-13)
 
-
-        # 计算点缝合的metric ------------------------------------------------------------------------------------
+        # # compute point stitching metrics
         stitch_mat_full, _, _, _, stitch_indices_full, logits= (
             get_pointstitch(batch, inf_rst,
                             sym_choice="", mat_choice="hun",
@@ -147,10 +134,9 @@ if __name__ == "__main__":
         mat_gt = mat_gt + mat_gt.transpose(-1, -2)
         stitch_mat_full = stitch_mat_full>=0.9
 
-        # === 缝合Recall ===
         RECALL_STITCH = torch.sum(torch.bitwise_and(stitch_mat_full==mat_gt, mat_gt))/torch.sum(mat_gt)
 
-        # === 缝合 AMD (average mean distance) ===
+        # stitching average mean distance (AMD)
         stitch_indices_pred = stitch_mat2indices(stitch_mat_full)
         stitch_indices_gt = stitch_mat2indices(mat_gt)
         mask_cls_pred = (pc_cls_ > threshold).squeeze(0)
@@ -181,7 +167,7 @@ if __name__ == "__main__":
         STITCH_AMD = torch.sum(torch.norm(stitch_cor_position_pred - stitch_cor_position_gt, dim=1)) / len(stitch_point_idx_valid)
         STITCH_AMD *= normalize_range
 
-        # === 计算点缝合拓扑准确性 ===
+        # compute the point stitching typology accurace
         timeout = 10
         graph_pred_ps = ps2graph(stitch_indices_pred, piece_id)
         graph_gt = ps2graph(stitch_indices_gt, piece_id)
@@ -191,7 +177,7 @@ if __name__ == "__main__":
             print("TIME OUT")
             continue
 
-        # === 计算处理后的拓扑准确性 ===
+        # compute the point stitching typology accurace (after processed)
         stitch_mat_pred = stitch_mat_full
         graph_pred_es = ps2es4eval(batch, inf_rst, stitch_mat_pred, stitch_indices_full, unstitch_thresh=5, fliter_len=3)
         try:
@@ -201,7 +187,6 @@ if __name__ == "__main__":
             print("TIME OUT")
             continue
 
-        # === 将这一轮的结果加入到list中 ===
         metric_dict["PRECISION_CLS"].append(PRECISION_CLS)
         metric_dict["RECALL_CLS"].append(RECALL_CLS)
 
@@ -221,7 +206,6 @@ if __name__ == "__main__":
         metric_dict["TOPOLOGHY_F1_ES"].append(topology_f1_es)
         metric_dict["TOPOLOGHY_GED_ES"].append(topology_GED_es)
 
-        # === 用于保存结果的dict ===
         out_dict = {
             "PRECISION_CLS": torch.mean(torch.Tensor(metric_dict['PRECISION_CLS'])).float().item(),
             "RECALL_CLS": torch.mean(torch.Tensor(metric_dict['RECALL_CLS'])).float().item(),
@@ -238,7 +222,8 @@ if __name__ == "__main__":
             "TOPOLOGHY_F1_ES": torch.mean(torch.Tensor(metric_dict['TOPOLOGHY_F1_ES'])).float().item(),
             "TOPOLOGHY_GED_ES": torch.mean(torch.Tensor(metric_dict['TOPOLOGHY_GED_ES'])).float().item(),
         }
-        with open(os.path.join("/home/Ex1/ProjectFiles/Pycharm_MyPaperWork/Jigsaw_matching/_tmp/metric", 'metric_full.json'), 'w') as f:
+
+        with open(os.path.join("_tmp/metric", 'metric_full.json'), 'w') as f:
             json.dump(out_dict, f, indent=2)
 
         print(f"\nPRECISION_CLS: {out_dict['PRECISION_CLS']}\n"

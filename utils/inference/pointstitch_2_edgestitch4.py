@@ -7,24 +7,17 @@
 """
 
 
-import os
 import json
 import uuid
 import torch
 import numpy as np
-from glob import glob
 from copy import deepcopy
 from functools import cmp_to_key
 from itertools import groupby
-from operator import itemgetter
 from utils import is_contour_OutLine
 
 
 def get_random_uuid():
-    """
-    获取一段随机的 uuid
-    :return:
-    """
     id = str(uuid.uuid4().hex)
     result = id[0:8] + "-" + id[8:12] + "-" + id[12:16] + "-" + id[16:20] + "-" + id[20:]
     return result
@@ -124,7 +117,7 @@ def cal_stitch_edge_middle_index(stitch_edge, all_contour_info):
     else:
         index_dis = (contour_info['index_end'] - start_point['id'] +
                       end_point['id'] - contour_info['index_start']) + 1
-    middle_index = start_point['id'] + index_dis // 2
+    middle_index = start_point['id'] + torch.trunc(index_dis / 2)
     if middle_index > contour_info['index_end']:
         middle_index = middle_index % contour_info['index_end'] + contour_info['index_start']
     return middle_index
@@ -132,7 +125,6 @@ def cal_stitch_edge_middle_index(stitch_edge, all_contour_info):
 
 def cal_stitch_edge_index_dis(stitch_edge, all_contour_info):
     """
-    计算一个缝合边居中位置的点id
     :param stitch_edge:
     :param all_contour_info:
     :return:

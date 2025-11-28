@@ -1,7 +1,6 @@
-import json, os
-import pickle
-import shutil
+import os
 from glob import glob
+import pickle, json, shutil
 
 
 def save_result(save_dir, data_id=0, garment_json=None, fig=None, g_basename=None, vis_resource=None, mesh_file_path=None):
