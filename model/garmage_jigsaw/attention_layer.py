@@ -277,7 +277,7 @@ class PointTransformerBlock(nn.Module):
         features = self.relu(self.bn1(self.linear1(features).transpose(1, 2)).transpose(1, 2))
 
         if self.name=="self":
-            if not unmean:  # 如果每个garment的点数量相同
+            if not unmean:  # if each garment have same number of sample point.
                 features = self.tf_layer(pcs_flatten, features.reshape(-1, self.feat_dim ),  batch_length,).view(B_size, N_point, -1).contiguous()
             else:
                 features_flattern = torch.concat([features[i][:batch_length[i]] for i in range(B_size)])
@@ -292,10 +292,8 @@ class PointTransformerBlock(nn.Module):
                 features=new_features
         elif self.name=="cross":
             if not unmean:
-                #[todoZ]
                 features = self.tf_layer(features)
             else:
-                a=1
                 raise NotImplementedError
         features = self.relu(self.bn2(features.transpose(1, 2)).transpose(1, 2))
         features = self.bn3(self.linear3(features).transpose(1, 2)).transpose(1, 2)
@@ -304,21 +302,3 @@ class PointTransformerBlock(nn.Module):
         features = self.relu(features)
 
         return features
-
-
-if __name__ == "__main__":
-    # a minimum test example
-    pos = torch.randn(12, 3)
-    x = torch.randn(12, 6)
-    b = torch.tensor([4, 3, 5], dtype=torch.long).reshape(3, 1)
-
-    pnf_layer = PointTransformerLayer(
-        in_feat=6, out_feat=6, n_heads=2, nsampmle=4
-    )
-    x_pnf = pnf_layer(p=pos, x=x, o=b)
-    print(x_pnf.shape)
-
-    cross_attention_layer = CrossAttentionLayer(d_in=6, n_head=2)
-    x = torch.randn(3, 4, 6)
-    x_ca = cross_attention_layer(x)
-    print(x_ca.shape)

@@ -21,7 +21,6 @@ if __name__ == "__main__":
         "Garmage256",
         ]: raise ValueError(f"data_type{data_type} is not valid")
 
-
     from utils.config import cfg
     from utils.config_2 import cfg2
     from utils.parse_args import parse_args

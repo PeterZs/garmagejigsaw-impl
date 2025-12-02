@@ -22,7 +22,6 @@ def generate_output_path(model_name):
 
 def parse_args(
         description,
-        multimodel=False,
         extra_args=None,
 ):
     parser = argparse.ArgumentParser(description=description)
@@ -35,18 +34,6 @@ def parse_args(
         default=None,
         type=str,
     )
-
-    if multimodel:
-        from utils.config_2 import cfg_from_file2
-        parser.add_argument(
-            "--cfg2",
-            "--config2",
-            dest="cfg_file2",
-            action="append",
-            help="an optional config file",
-            default=None,
-            type=str,
-        )
 
     # Apply extra user inputs.
     if extra_args is not None:
@@ -61,12 +48,6 @@ def parse_args(
     if args.cfg_file is not None:
         for f in args.cfg_file:
             cfg_from_file(f)
-
-    if multimodel:
-        # load cfg from file
-        if args.cfg_file2 is not None:
-            for f in args.cfg_file2:
-                cfg_from_file2(f)
 
     if len(cfg.MODEL_NAME) != 0:
         output_path, model_save_path = generate_output_path(cfg.MODEL_NAME)

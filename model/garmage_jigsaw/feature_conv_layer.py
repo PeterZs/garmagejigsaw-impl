@@ -89,65 +89,6 @@ class res_block_xd_default(nn.Module):
         return out
 
 
-# class res_block_xd_custom(nn.Module):
-#     def __init__(self, in_channels, out_channels, kernel_size=[3, 3], dilation=[1, 1], padding=[1, 1], v_norm="layer", v_norm_shape=None):
-#         super(res_block_xd_custom, self).__init__()
-#
-#         self.in_channels = in_channels
-#         self.out_channels = out_channels
-#         self.kernel_size = kernel_size
-#         self.dilation = dilation
-#         self.padding = padding
-#         self.stride = 1
-#         self.v_norm = v_norm
-#         self.v_norm_shape = v_norm_shape
-#
-#         self.downsample = None
-#         if v_norm is None or v_norm == "none":
-#             norm = nn.Identity()
-#         elif v_norm == "layer":
-#             raise NotImplementedError
-#             norm = nn.LayerNorm(v_norm_shape)
-#
-#         self.conv_list = nn.ModuleList()
-#         for i in range(len(self.kernel_size)):
-#             self.conv_list.append(
-#                 nn.Conv1d(
-#                     self.in_channels,
-#                     self.out_channels,
-#                     kernel_size=self.kernel_size[i],
-#                     dilation=self.dilation[i],
-#                     stride=self.stride,
-#                     padding=self.padding[i]
-#                 )
-#             )
-#             self.conv_list.append(
-#                 copy.deepcopy(norm)
-#             )
-#             if i != len(self.kernel_size) - 1:
-#                 self.conv_list.append(
-#                     nn.ReLU(inplace=True)
-#                 )
-#
-#         # if in_channels != out_channels:
-#         #     self.downsample = nn.Sequential(
-#         #         nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=1, bias=False),
-#         #         copy.deepcopy(norm),
-#         #     )
-#
-#     def forward(self, x):
-#         identity = x
-#
-#         for md in self.conv_list:
-#             x = md(x)
-#
-#         out = x + identity
-#         out = self.relu(out)
-#
-#         return out
-
-
-
 class feature_conv_layer_contourwise(nn.Module):
     """
     对同属于一个环的点的特征进行混合
@@ -184,17 +125,6 @@ class feature_conv_layer_contourwise(nn.Module):
                 v_norm = None,
                 v_norm_shape = None
             )
-        # elif self.type == "custom":
-        #     self.padding = [cal_padding(kernel_size = self.kernel_size[i], dilation = self.dilation[i]) for i in range(len(kernel_size))]
-        #     self.conv = res_block_xd_custom(
-        #         in_channels = self.in_channels,
-        #         out_channels = self.out_channels,
-        #         kernel_size = self.kernel_size,
-        #         padding = self.padding,
-        #         dilation = self.dilation,
-        #         v_norm = None,
-        #         v_norm_shape = None
-        #     )
 
     def forward(self, x):
         if self.type == "default":
@@ -206,15 +136,3 @@ class feature_conv_layer_contourwise(nn.Module):
             return output
         else:
             raise NotImplementedError
-
-
-
-if __name__ == "__main__":
-    N, D = 36, 64  # 总点数，特征维度
-    ring_lengths = [12, 15, 9]  # 总和必须等于 N
-    x = torch.randn(N, D)
-
-    f_conv = feature_conv_layer_contourwise(in_channels=D, out_channels=D, kernel_size=7)
-    x_out = f_conv(x)
-
-    a=1

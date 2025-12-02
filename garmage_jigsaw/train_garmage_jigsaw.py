@@ -8,13 +8,10 @@ from pytorch_lightning.loggers import WandbLogger
 from model import build_model
 from dataset import build_stylexd_dataloader_train_val
 
-def train_model(cfg):
 
-    # catch fault ===
-    if True:
-        import faulthandler
-        # faulthandler.enable()
-        faulthandler.enable(all_threads=True)
+def train_model(cfg):
+    import faulthandler
+    faulthandler.enable(all_threads=True)
 
     if len(cfg.WEIGHT_FILE) > 0:
         ckp_path = cfg.WEIGHT_FILE
@@ -27,7 +24,6 @@ def train_model(cfg):
     if len(cfg.WEIGHT_FILE) > 0 and not os.path.exists(ckp_path):
         print(f"cfg.WEIGHT_FILE No such file: {ckp_path}")
         ckp_path = None
-
 
     # initial Wandb logger
     logger_name = f"{cfg.MODEL_NAME}"
@@ -45,8 +41,8 @@ def train_model(cfg):
         dirpath=cfg.MODEL_SAVE_PATH,
         filename="model_{epoch:03d}",
         monitor="epoch",
-        every_n_epochs=5,  # 每间隔 n epoch保存一次
-        save_top_k=-1,  # 保存所有
+        every_n_epochs=5,  # save epoch per n epochs
+        save_top_k=-1,
         mode=cfg.CALLBACK.CHECKPOINT_MODE,
         save_last=True,
     )
@@ -80,12 +76,11 @@ def train_model(cfg):
     model = build_model(cfg)
 
     trainer = pl.Trainer(**trainer_dict)
+
     train_loader, val_loader = build_stylexd_dataloader_train_val(cfg)
 
     with torch.autograd.set_detect_anomaly(True):
         if not cfg.TRAIN.FINETUNE:
-            if ckp_path is not None:
-                model.load_state_dict(torch.load(ckp_path)['state_dict'])
             print("Start training")
             trainer.fit(model, train_loader, val_loader, ckpt_path=ckp_path)
             print("Done training")
@@ -101,7 +96,6 @@ if __name__ == "__main__":
     from utils.config import cfg
     from utils.parse_args import parse_args
     from utils.print_easydict import print_easydict
-
 
     args = parse_args("GarmageJigsaw")
 

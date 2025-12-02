@@ -23,15 +23,4 @@ def build_pc_classifier(dim, norm="batch"):
 """
     [TODO] Further improvements, improve pointcloud classifier
     refer to the point-classification in PTv1:
-    self.cls = nn.Sequential(
-        nn.Linear(planes[4], 256),
-        nn.BatchNorm1d(256),
-        nn.ReLU(inplace=True),
-        nn.Dropout(p=0.5),
-        nn.Linear(256, 128),
-        nn.BatchNorm1d(128),
-        nn.ReLU(inplace=True),
-        nn.Dropout(p=0.5),
-        nn.Linear(128, num_classes),
-    )
 """
