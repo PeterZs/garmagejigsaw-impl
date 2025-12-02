@@ -1,8 +1,8 @@
 
-MODEL_NAME: jigsaw_StyleXD
-MODULE: jigsaw_stylexd
+MODEL_NAME: jigsaw_StyleXD  # wandb run name
+MODULE: jigsaw_stylexd  # model build
 
-PROJECT: jigsaw
+PROJECT: jigsaw  # wandb project name
 
 WEIGHT_FILE: pretrained/Classpred+stitchpred/PClocal+UV_local_tfB3_sn12_globalSL_STloss0.1/model_epoch=099.ckpt
 

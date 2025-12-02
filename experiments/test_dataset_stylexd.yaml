@@ -1,8 +1,7 @@
+MODEL_NAME: jigsaw_StyleXD  # wandb run name
+MODULE: jigsaw_stylexd  # model build
 
-MODEL_NAME: jigsaw_StyleXD
-MODULE: jigsaw_stylexd
-
-PROJECT: jigsaw
+PROJECT: jigsaw  # wandb project name
 
 #WEIGHT_FILE: pretrained/pipline4/V6_E100.ckpt
 
