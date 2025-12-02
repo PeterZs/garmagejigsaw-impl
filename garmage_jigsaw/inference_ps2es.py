@@ -66,8 +66,7 @@ if __name__ == "__main__":
 
     args = parse_args(
         "Jigsaw",
-        multimodel=False,
-
+        get_inference_args
     )
 
     model = build_model(cfg).load_from_checkpoint(cfg.WEIGHT_FILE).cuda()
@@ -87,6 +86,7 @@ if __name__ == "__main__":
 
             try: data_id = int(os.path.basename(batch['mesh_file_path'][0]).split("_")[1])
             except Exception: data_id = idx
+
             g_basename = os.path.basename(batch['mesh_file_path'][0])
 
             # === model inference ===
@@ -103,16 +103,14 @@ if __name__ == "__main__":
                 inf_rst = model(batch)
             remove_noise_on_garmage(batch)
 
-
             # === optimize point-point stitch ===
             stitch_mat_full, stitch_pcs, unstitch_pcs, stitch_indices, stitch_indices_full, logits = (
                 get_pointstitch(batch, inf_rst,
                                 sym_choice="", mat_choice="col_max",
                                 filter_neighbor_stitch=True, filter_neighbor = 1,
                                 filter_too_long=True, filter_length=0.12,
-                                filter_too_small=True, filter_logits=0.11,
-                                only_triu=True, filter_uncontinue=True,
-                                show_pc_cls=False, show_stitch=False))
+                                filter_too_small=True, filter_prob=0.11,
+                                only_triu=True, filter_uncontinue=True))
             batch = to_device(batch, "cpu")
 
             # === get seg2seg stitches ===

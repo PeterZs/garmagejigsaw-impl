@@ -290,7 +290,6 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         :return:
         """
 
-
         pcs = []
         nps =  [len(mesh.vertices) for mesh in meshes]      # point num of each panel
         num_parts = len(nps)    # Panel num

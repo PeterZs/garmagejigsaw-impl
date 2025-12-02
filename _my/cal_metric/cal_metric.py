@@ -124,7 +124,7 @@ if __name__ == "__main__":
                             sym_choice="", mat_choice="hun",
                             filter_neighbor_stitch=False, filter_neighbor=3,
                             filter_too_long=False, filter_length=0.1,
-                            filter_too_small=True, filter_logits=0.1,
+                            filter_too_small=True, filter_prob=0.1,
                             only_triu=False, filter_uncontinue=False,
                             show_pc_cls=False, show_stitch=False))
 

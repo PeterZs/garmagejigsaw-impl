@@ -186,5 +186,6 @@ cython_debug/
 /_my/another_script/
 /_my/only_export_vis_rotate/
 /_my/feature_mean_var_testing/
+/_my/SigAsia2025_rebuttle/
 /_my/SigAsia2025_rebuttle/finetune_on_previsou_ckpt/finetune_from/
 /_my/SigAsia2025_rebuttle/train_on_GCDMM/pretrained/
