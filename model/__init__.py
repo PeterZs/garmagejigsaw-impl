@@ -3,12 +3,8 @@ from .modules import *
 
 
 def build_model(cfg):
-    module_list = cfg.MODULE.lower().split('.')
-    if module_list[0] == 'jigsaw_stylexd':
-        from .garmage_jigsaw import GarmageJigsawModel
-        return GarmageJigsawModel(cfg)
-    else:
-        raise NotImplementedError(f'Model {cfg.MODULE.lower()} not implemented')
+    from .garmage_jigsaw import GarmageJigsawModel
+    return GarmageJigsawModel(cfg)
 
 
 def build_point_classifier(cfg):

@@ -1,6 +1,5 @@
 
 MODEL_NAME: jigsaw_StyleXD  # wandb run name
-MODULE: jigsaw_stylexd  # model build
 
 PROJECT: GarmageJigsaw  # wandb project name
 

@@ -116,12 +116,12 @@ def cfg_from_file2(filename):
     with open(filename, "r") as f:
         yaml_cfg = edict(yaml.full_load(f))
 
-    if "MODULE" in yaml_cfg and "MODEL" not in __C_2:
+    if "MODEL" not in __C_2:
         model_cfg_module = 'model.garmage_jigsaw.model_config'
         mod = importlib.import_module(model_cfg_module)
         __C_2["MODEL"] = mod.get_model_cfg()
 
-    if "DATASET" in yaml_cfg and "DATA" not in __C_2:
+    if "DATA" not in __C_2:
         dataset_cfg_module = 'dataset.dataset_config_GarmageJigsaw'
         dat = importlib.import_module(dataset_cfg_module)
         __C_2["DATA"] = dat.get_dataset_cfg()
