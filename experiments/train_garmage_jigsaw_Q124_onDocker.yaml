@@ -3,7 +3,7 @@ MODULE: jigsaw_stylexd  # model build
 
 PROJECT: jigsaw  # wandb project name
 
-# WEIGHT_FILE: results/jigsaw_StyleXD/model_save/last.ckpt
+# WEIGHT_FILE:
 
 RESUME: false
 WANDB:

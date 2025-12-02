@@ -3,7 +3,7 @@ MODULE: jigsaw_stylexd  # model build
 
 PROJECT: jigsaw  # wandb project name
 
-#WEIGHT_FILE: pretrained/Classpred+stitchpred/PCglobal+PClocal+UV_tfB3_sn1/model_epoch=099.ckpt
+# WEIGHT_FILE:
 
 RESUME: false
 WANDB:

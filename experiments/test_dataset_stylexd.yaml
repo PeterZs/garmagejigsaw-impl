@@ -3,7 +3,7 @@ MODULE: jigsaw_stylexd  # model build
 
 PROJECT: jigsaw  # wandb project name
 
-#WEIGHT_FILE: pretrained/pipline4/V6_E100.ckpt
+# WEIGHT_FILE:
 
 RESUME: false
 WANDB:
