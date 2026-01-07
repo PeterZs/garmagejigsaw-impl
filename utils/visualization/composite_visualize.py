@@ -124,6 +124,9 @@ def composite_visualize(batch, inf_rst, stitch_indices_full=None, logits=None):
     # === Geometry Image ===
     with open(glob(os.path.join(batch["mesh_file_path"][0], "original_data","*.pkl"))[0], 'rb') as f:
         orig_data = pickle.load(f, fix_imports=True)
+        for k in orig_data.keys():
+            if isinstance(orig_data[k], list):
+                orig_data[k] = np.array(orig_data[k])
         if orig_data["surf_mask"].ndim != 4:
             orig_data["surf_mask"] = orig_data["surf_mask"].reshape(-1,256,256,1)
         if orig_data["surf_ncs"].ndim != 4:

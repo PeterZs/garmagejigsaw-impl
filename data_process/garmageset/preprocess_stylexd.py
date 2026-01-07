@@ -1,34 +1,35 @@
-# 对StyleXD带l的数据集的进行预处理
-# 得到训练数据
+"""
+Process raw obj with stitches ("l idx1 idx2") annotation.
+"""
 
 import os
+import argparse
 from glob import glob
 from tqdm import tqdm
 
 from data_process.garmageset.utils_data_process import *
-from utils import stitch_visualize
+
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--objs_dir", type=str, default=None, required=True)
+    parser.add_argument("--output_root", type=str, default=None, required=True)
+    args = parser.parse_args()
 
-    # stylexd_dir = "/home/Ex1/Datasets/S3D/StyleXD/StyleXD_with_stitch"
-    # out_dir = "/home/Ex1/Datasets/S3D/StyleXD/preprocessed_jigsaw_train"
-    # file_list = glob(os.path.join(stylexd_dir,"*.obj"))
-    START_IDX = 11077
+    objs_dir = args.objs_dir
+    output_root = args.output_root
 
-    stylexd_dir = "/home/Ex1/Datasets/S3D/objs_with_stitch/Q4"
-    # out_dir = "/home/Ex1/Datasets/S3D/StyleXD/preprocessed_jigsaw_train"
-    out_dir = "data/stylexd_jigsaw/additional_data"
-    file_list = glob(os.path.join(stylexd_dir,"**","*.obj"), recursive=True)
+    file_list = glob(os.path.join(objs_dir,"**","*.obj"), recursive=True)
     for idx, file_path in tqdm(list(enumerate(file_list))):
-        garment_idx = idx + START_IDX
 
-        base_name = os.path.basename(file_path)
+        uuid = os.path.splitext(os.path.basename(file_path))[0]
 
-        garment_save_dir = os.path.join(out_dir,"garment_"+f"{garment_idx}".zfill(5))
+        garment_save_dir = os.path.join(output_root, f"{uuid}")
 
+        # load data
         obj_dict = parse_obj_file(file_path)
-        # stitch_visualize(np.array(obj_dict["vertices"]),np.array(obj_dict["stitch"]))
 
+        # spilt panel-wise
         meshes = split_mesh_into_parts(obj_dict)
 
         save_results(obj_dict, meshes, garment_save_dir, file_path)

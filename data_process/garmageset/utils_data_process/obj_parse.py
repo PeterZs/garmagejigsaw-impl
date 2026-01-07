@@ -1,3 +1,7 @@
+"""
+Parse obj file with stitches annotations.
+"""
+
 import numpy as np
 
 

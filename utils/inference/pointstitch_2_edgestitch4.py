@@ -713,6 +713,7 @@ def pointstitch_2_edgestitch4(batch, inf_rst, stitch_mat, stitch_indices,
                 edge_points_idx.to(device_)
             else:
                 edge_points_idx = torch.arange(e_approx_global[0], e_approx_global[1]+1)
+
             # 这个边的param的最小值
             edge_info["param_start"] = global_param
             for idx, point_idx in enumerate(edge_points_idx):
@@ -781,7 +782,7 @@ def pointstitch_2_edgestitch4(batch, inf_rst, stitch_mat, stitch_indices,
         contour_info = all_contour_info[contour_id]
         contour_edges_info = contour_info["edges_info"]
 
-        # 获取contour上的所有点点缝合 ===
+        # 获取出发于同一个contour的所有点点缝合 ===
         contour_stitch_points = []
         contour_stitch_list = []
         for edge_id in contour_edges_info:

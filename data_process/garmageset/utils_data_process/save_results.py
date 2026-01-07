@@ -11,7 +11,7 @@ def save_results(obj_dict:dict, meshes:list, garment_save_dir:str, file_path):
         piece_save_path = os.path.join(garment_save_dir,"piece_"+f"{idx}".zfill(2)+".obj")
         mesh.export(piece_save_path)
 
-    # === save annotations ===
+    # save annotations
     annotations_dir = os.path.join(garment_save_dir,"annotations")
     os.makedirs(annotations_dir, exist_ok=True)
 

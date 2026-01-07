@@ -19,8 +19,3 @@ def build_pc_classifier(dim, norm="batch"):
         nn.Conv1d(dim, 1, 1),
     )
     return affinity_layer
-
-"""
-    [TODO] Further improvements, improve pointcloud classifier
-    refer to the point-classification in PTv1:
-"""

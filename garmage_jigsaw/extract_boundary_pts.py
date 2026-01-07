@@ -1,10 +1,11 @@
 import os
 import json
 import pickle
+import argparse
 from glob import glob
 from tqdm import tqdm
-from collections import deque
 from typing import List, Tuple
+from copy import deepcopy
 
 import cv2
 import uuid
@@ -269,92 +270,131 @@ def _pad_arr(arr, pad_size=10):
         mode='constant',
         constant_values=0)
 
+from chamferdist import ChamferDistance
+CD = ChamferDistance()
+def shape_dedup_cd(data):
+    threshold = 2
 
-def load_data(data_type="Garmage256", fp={}, save_vis=False):
+    if "surf_bbox" in data:
+        _surf_bbox = data["surf_bbox"]
+    else:
+        _surf_bbox = data["surf_bbox_wcs"]
+    geo_orig = data["surf_ncs"]
+    mask = data["surf_mask"]
+    n_surfs = geo_orig.shape[0]
+    if geo_orig.ndim == 4:
+        geo_orig = geo_orig.reshape(n_surfs, -1, geo_orig.shape[3])
+    geo_orig = _denormalize_pts(geo_orig, _surf_bbox)
+
+    valid_mask = []
+    valid_pts_list = []
+    for i in range(n_surfs):
+        valid_pts =  geo_orig[i][mask[i]]
+        valid_pts = valid_pts[np.random.choice(len(valid_pts), 2048)]
+        valid_pts = torch.tensor(valid_pts[None, ...], dtype=torch.float32)
+        if len(valid_pts_list)==0:
+            valid_pts_list.append(valid_pts)
+            valid_mask.append(True)
+        else:
+            CD_loss_list = []
+            for j in range(len(valid_pts_list)):
+                CD_loss_list.append(CD(valid_pts_list[j], valid_pts, bidirectional=True))
+            CD_loss_list = np.array(CD_loss_list)
+            if CD_loss_list.min()<threshold:
+                valid_mask.append(False)
+            else:
+                valid_pts_list.append(valid_pts)
+                valid_mask.append(True)
+
+    valid_mask = np.array(valid_mask, dtype=bool)
+    for k in data:
+        if isinstance(data[k], np.ndarray):
+            data[k] = data[k][valid_mask]
+
+    return data
+
+def load_data(garment_fp, save_vis=False, shape_dedup=False):
     """
     Load a garmage file.
-    :param data_type:
-    :param fp:
+    :param garment_fp:
+    :param save_vis: If save garmagenet generate results.
     :return:
     """
-    if data_type == "Garmage256":
-        with open(fp["garment_fp"], "rb") as f:
-            data = pickle.load(f)
-        geo_orig = data["surf_ncs"]
-        mask = data["surf_mask"]
-        n_surfs = len(geo_orig)
+    with open(garment_fp, "rb") as f:
+        data = pickle.load(f)
 
-        # save some visualize results (Only for watch) ===
-        if save_vis:
-            # panel wise geometry image
-            mask_draw_per_panel = mask
-            if np.max(mask_draw_per_panel)>0.8 and np.min(mask_draw_per_panel)<-0.8:
-                mask_draw_per_panel = (mask_draw_per_panel+1)/2
-                mask_draw_per_panel[mask_draw_per_panel<0.1] = 0
-                mask_draw_per_panel[mask_draw_per_panel>1] = 1
-            colors = [to_hex(plt.cm.coolwarm(i)) for i in np.linspace(0, 1, n_surfs)]
-            draw_per_panel_geo_imgs(geo_orig.reshape(n_surfs,-1,3), mask_draw_per_panel.reshape(n_surfs,-1), colors, pad_size=5, out_dir=fp["garment_fp"].replace(".pkl","")+"_per_panel_images")
+    # transfer list to ndarray
+    for k in data:
+        if isinstance(data[k], list):
+            data[k] = np.array(data[k])
 
-            # 3D pointcloud+bbox
-            try:
-                _surf_bbox_ = data["surf_bbox"]
-            except Exception:
-                _surf_bbox_ = data["surf_bbox_wcs"]
+    # shape dedup before process
+    if shape_dedup:
+        data = shape_dedup_cd(data)
 
-            _surf_ncs_ = data["surf_ncs"].reshape(n_surfs,-1,3)
-            _surf_wcs_ = _denormalize_pts(_surf_ncs_, _surf_bbox_)
-            _mask_ = data["surf_mask"].reshape(n_surfs,-1)
+    # start process data
+    geo_orig = data["surf_ncs"]
+    mask = data["surf_mask"]
+    n_surfs = len(geo_orig)
+    if "surf_bbox" in data: _surf_bbox = data["surf_bbox"]
+    else: _surf_bbox = data["surf_bbox_wcs"]
+    if "surf_uv_bbox" in data: uv_bbox = data["surf_uv_bbox"]
+    else: uv_bbox = data["surf_uv_bbox_wcs"]
+    if isinstance(uv_bbox, torch.Tensor):
+        uv_bbox = uv_bbox.detach().cpu().numpy()
 
-            if _mask_.dtype == np.float32 or _mask_.dtype == np.float64:
-                _mask_ = _mask_>0
+    # save some visualize results (Only for watch) ===
+    if save_vis:
+        # panel wise geometry image
+        mask_draw_per_panel = mask
+        if np.max(mask_draw_per_panel)>0.8 and np.min(mask_draw_per_panel)<-0.8:
+            mask_draw_per_panel = (mask_draw_per_panel+1)/2
+            mask_draw_per_panel[mask_draw_per_panel<0.1] = 0
+            mask_draw_per_panel[mask_draw_per_panel>1] = 1
+        colors = [to_hex(plt.cm.coolwarm(i)) for i in np.linspace(0, 1, n_surfs)]
+        draw_per_panel_geo_imgs(geo_orig.reshape(n_surfs,-1,3), mask_draw_per_panel.reshape(n_surfs,-1), colors, pad_size=5, out_dir=garment_fp.replace(".pkl","")+"_per_panel_images")
 
-            draw_bbox_geometry(
-                bboxes=_surf_bbox_,
-                bbox_colors=colors,
-                points=_surf_wcs_,
-                point_masks=_mask_,
-                point_colors=colors,
-                num_point_samples=2000,
-                all_bboxes=_surf_bbox_,
-                output_fp=fp["garment_fp"].replace(".pkl","")+"_3d_PC_BBOX.png",
-                visatt_dict={
-                    "bboxmesh_opacity": 0.12,
-                    "point_size": 12,
-                    "point_opacity": 0.8,
-                    "bboxline_width": 8,
-                }
-            )
+        # visualize bbox + geometry
+        _surf_ncs_ = data["surf_ncs"].reshape(n_surfs,-1,3)
+        _surf_wcs_ = _denormalize_pts(_surf_ncs_, _surf_bbox)
+        _mask_ = data["surf_mask"].reshape(n_surfs,-1)
 
-            try:
-                _surf_uv_bbox = data["surf_uv_bbox"]
-            except Exception:
-                _surf_uv_bbox = data["surf_uv_bbox_wcs"]
-            _surf_uv_bbox_wcs_ = np.zeros((n_surfs, 6))
-            _surf_uv_bbox_wcs_[:, [0, 1, 3, 4]] = _surf_uv_bbox
+        if _mask_.dtype == np.float32 or _mask_.dtype == np.float64:
+            _mask_ = _mask_>0
 
-        if "surf_uv_bbox" in data: uv_bbox = data["surf_uv_bbox"]
-        else: uv_bbox = data["surf_uv_bbox_wcs"]
-        if "surf_bbox" in data: _surf_bbox = data["surf_bbox"]
-        else: _surf_bbox = data["surf_bbox_wcs"]
+        draw_bbox_geometry(
+            bboxes=_surf_bbox,
+            bbox_colors=colors,
+            points=_surf_wcs_,
+            point_masks=_mask_,
+            point_colors=colors,
+            num_point_samples=2000,
+            all_bboxes=_surf_bbox,
+            output_fp=garment_fp.replace(".pkl","")+"_3d_PC_BBOX.png",
+            visatt_dict={
+                "bboxmesh_opacity": 0.12,
+                "point_size": 12,
+                "point_opacity": 0.8,
+                "bboxline_width": 8,
+            }
+        )
 
-        if geo_orig.ndim == 4:
-            geo_orig = geo_orig.reshape(geo_orig.shape[0], -1, geo_orig.shape[3])
+    # geometry
+    if geo_orig.ndim == 4:
+        geo_orig = geo_orig.reshape(geo_orig.shape[0], -1, geo_orig.shape[3])
+    geo_orig = _denormalize_pts(geo_orig, _surf_bbox)
+    geo_orig = geo_orig.reshape(-1, 256, 256, 3)
 
-        geo_orig = _denormalize_pts(geo_orig, _surf_bbox)
-        geo_orig = geo_orig.reshape(-1, 256, 256, 3)
-        mask = mask.reshape(-1, 256, 256, 1)
+    # mask
+    mask = mask.reshape(-1, 256, 256, 1)
+    if np.min(mask) < -0.1 or np.max(mask) > 1.1:
+        mask = torch.sigmoid(torch.tensor(mask, dtype=torch.float64))
+        mask = mask.detach().numpy()
+        mask = mask>0.5
 
-        if np.min(mask) < -0.1 or np.max(mask) > 1.1:
-            mask = torch.sigmoid(torch.tensor(mask, dtype=torch.float64))
-            mask = mask.detach().numpy()
-            mask = mask>0.5
-
-        # pad geometry image ===
-        geo_orig = _pad_arr(geo_orig, pad_size=5)
-        mask = _pad_arr(mask, pad_size=5)
-
-    else:
-        raise NotImplementedError
+    # pad geometry image
+    geo_orig = _pad_arr(geo_orig, pad_size=5)
+    mask = _pad_arr(mask, pad_size=5)
 
     return geo_orig, mask, uv_bbox
 
@@ -486,7 +526,7 @@ def vectorize_contour_adaptive_distance(
         angle_threshold: float = 25.0,
         min_point_dist: int = 10,
         local_max_window: int = 5
-) -> list[int]:
+    ):
     """
     原始参数，效果不错：
     smooth_sigma: float = 3.0,
@@ -494,6 +534,7 @@ def vectorize_contour_adaptive_distance(
     angle_threshold: float = 30.0,
     min_point_dist: int = 10,
     local_max_window: int = 5
+
     针对较近的端点情况进行优化：
     smooth_sigma: float = 2.0,
     min_sample_dist: float = 10.0,
@@ -685,6 +726,45 @@ def vectorize_contour_adaptive_distance(
     return sorted(list(final_control_point_indices))
 
 
+def dilate_garmage(mask_img, geo_img):
+    """ for each point is False on mask_img, find nearst to dilation
+
+    :param mask_img:    RESO x RESO
+    :param geo_img:     RESO x RESO x 3
+    :return:            result after dilate
+    """
+
+    geo_img_dilated = deepcopy(geo_img)
+    mask = mask_img
+
+    # Get the coordinates of the points on the boundary/edge
+    _, thresh = cv2.threshold(mask, 128, 255, cv2.THRESH_BINARY)
+    contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+    contour_indices = np.concatenate(list(contours)).reshape(-1,2)
+
+    # Geometry values at the boundary points
+    geo_contour = geo_img[contour_indices[:, 1], contour_indices[:, 0], :]
+
+    # Coordinates of points that require dilation (invalid/masked-out points)
+    unvalid_indices = np.argwhere(~mask_img)
+    unvalid_indices = unvalid_indices[...,::-1]
+
+    # Distance matrix between all points needing dilation and all boundary points
+    # Calculated using the expansion: (a-b)^2 = a^2 + b^2 - 2ab
+    dis = np.sqrt(
+        np.sum(unvalid_indices ** 2, axis=1)[:, None] +
+        np.sum(contour_indices ** 2, axis=1)[None,:] -
+        2 * unvalid_indices @ contour_indices.T)
+
+    # Find the nearest boundary point for each point requiring dilation
+    min_dis_indices = np.argmin(dis, axis=1)
+    dilation_geo = geo_contour[min_dis_indices]
+
+    # Apply the geometry of the nearest boundary points to the invalid regions
+    geo_img_dilated[unvalid_indices[:, 1], unvalid_indices[:, 0], :] = dilation_geo
+    return geo_img_dilated
+
+
 def normalize_and_denormalize_uv(points_2D, panel_instance_seg, uv_bbox):
     """
     Normalizes the 2D points to their local BBOX and then denormalizes them to the UV space defined by uv_bbox.
@@ -777,6 +857,10 @@ def extract_boundary_pts(geo_orig, uv_bbox, mask, delta=0.023, RESO=256, erode_s
 
     contour_list = []
     empty_GeoImg_num = 0
+
+    # === Dilate garmage before processing
+    geo_dil_list = []
+
     for panel_idx in range(mask.shape[0]):
         # filter empty GeoImg ===
         geo_dist = np.linalg.norm(geo_orig[panel_idx], axis=-1)
@@ -788,10 +872,17 @@ def extract_boundary_pts(geo_orig, uv_bbox, mask, delta=0.023, RESO=256, erode_s
         mask_img = (mask[panel_idx] * 255.0).astype(np.uint8)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         mask_img = cv2.erode(mask_img, kernel, iterations=erode_size)
+
+        geo = geo_orig[panel_idx]
+        geo_dil = dilate_garmage(mask_img, geo)
+        geo_dil_list.append(geo_dil)
+
         mask_img = cv2.dilate(mask_img, kernel, iterations=erode_size)
 
-        mask_img[mask_img >= 150] = 255
-        mask_img[mask_img < 150] = 0
+        thresh = 150
+        assert thresh >100 and thresh <= 230
+        mask_img[mask_img >= thresh] = 255
+        mask_img[mask_img < thresh] = 0
 
         # extract contours by mask ===
         _, thresh = cv2.threshold(mask_img, 128, 255, cv2.THRESH_BINARY)
@@ -807,7 +898,7 @@ def extract_boundary_pts(geo_orig, uv_bbox, mask, delta=0.023, RESO=256, erode_s
             panel_instance_seg.append(panel_idx-empty_GeoImg_num)  # The panel instance to which it belongs
 
     resized_uv = normalize_and_denormalize_uv(contour_list, panel_instance_seg, uv_bbox)
-
+    geo_orig = np.concatenate([g[None,...] for g in geo_dil_list], axis=0)
 
     TEST = False
     if TEST:
@@ -1356,7 +1447,7 @@ def get_full_uv_info(resampled_points_2D, panel_instance_seg, uv_bbox, contour_n
 
 def save_resaults(output_dir, g_idx,
                   resampled_points_3D, edge_approx, contour_nes, panel_nes, panel_instance_seg,
-                  garment_json, full_uv_info, cfg, fp, g_basename=None):
+                  garment_json, full_uv_info, cfg, garment_fp, g_basename=None):
     """
     Save the results.
 
@@ -1400,10 +1491,11 @@ def save_resaults(output_dir, g_idx,
     # save annotations.json file ===
     annotations_json_save_path = os.path.join(annotation_dir, "annotations.json")
     annotations_json = {
+        "panel_nes": panel_nes.tolist(),
         "contour_nes": contour_nes.tolist(),
         "edge_approx": np.concatenate(edge_approx).tolist(),
         "panel_instance_seg": panel_instance_seg.tolist(),
-        "data_path": fp["garment_fp"]
+        "data_path": garment_fp
     }
     with open(annotations_json_save_path, 'w', encoding='utf-8') as f:
         json.dump(annotations_json, f, indent=4, ensure_ascii=False)
@@ -1418,60 +1510,54 @@ def save_resaults(output_dir, g_idx,
     original_data_dir = os.path.join(garment_dir, "original_data")
     os.makedirs(original_data_dir, exist_ok=True)
 
-    with open(fp["garment_fp"], 'rb') as f:
+    with open(garment_fp, 'rb') as f:
         _data = pickle.load(f)
-    with open(os.path.join(original_data_dir, os.path.basename(fp["garment_fp"])), "wb") as f:
+    with open(os.path.join(original_data_dir, os.path.basename(garment_fp)), "wb") as f:
         pickle.dump(_data, f)
 
 
-
 if __name__ == "__main__":
-    data_type = "Garmage256"  # Generated 256x256 Garmage
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--data_dir", type=str,
+        default=None
+    )
+    parser.add_argument("--delta", type=float, default=0.012)
+    parser.add_argument("--erode_size", type=int, default=3)
+    parser.add_argument("--shape_dedup", type=bool, default=False)
+    args = parser.parse_args()
 
-    data_dir = "/data/lsr/resources/Garmage_SigAisia2025/_补充材料_草图生成/常规1/generated"
+    data_dir = args.data_dir
+    output_dir = data_dir + "_extracted"
+    os.makedirs(output_dir, exist_ok=True)
 
     """
     Keys in cfg:
         RESO: Resolution of GeoImg
         delta: Resampling interval
-        gr: Granularity for edge fitting
-    """
-    if data_type=="Garmage256":
-        """
-        feature convK55D11:
-            output_dir = data_dir + "_output"
-            data_path_list = sorted(glob(os.path.join(data_dir, "*.pkl")))
-            garment_num = len(data_path_list)
-            cfg = {"RESO":256, "delta": 0.012, "erode_size":1}
-            + 6 INF NOISE
-        """
-        output_dir = data_dir + "_output"
+        
+    feature convK55D11:
         data_path_list = sorted(glob(os.path.join(data_dir, "*.pkl")))
         garment_num = len(data_path_list)
-        cfg = {"RESO":256, "delta": 0.012, "erode_size":1}
-    else:
-        raise NotImplementedError
-    os.makedirs(output_dir, exist_ok=True)
+        cfg = {"RESO":256, "delta": 0.012, "erode_size":3}
+        + 6 INF NOISE * 1 Iter
+    """
+    data_path_list = sorted(glob(os.path.join(data_dir, "*.pkl")), key=lambda x: os.path.splitext(os.path.basename(x))[0])
+    garment_num = len(data_path_list)
+    cfg = {"RESO":256, "delta": args.delta, "erode_size":args.erode_size}
 
-    for g_idx in tqdm(range(0, garment_num), desc=f"Processing {data_type} data: "):
-        # if g_idx!=1:continue
+    for g_idx in tqdm(range(0, garment_num), desc=f"Processing data: "):
 
-        if data_type == "Garmage256":
-            garment_fp = data_path_list[g_idx]
-            g_basename = os.path.basename(garment_fp).replace(".pkl","")
-            fp = {"garment_fp": garment_fp}
+        garment_fp = data_path_list[g_idx]
+        g_basename = os.path.basename(garment_fp).replace(".pkl","")
 
-            try:   g_idx = int(garment_fp.split("/")[-1].split(".")[-2])
-            except Exception:   g_idx = g_idx
-
-        else:
-            raise NotImplementedError
+        try:   g_idx = int(garment_fp.split("/")[-1].split(".")[-2])
+        except Exception:   g_idx = g_idx
 
         # read data
-        geo_orig, mask, uv_bbox = load_data(data_type, fp, save_vis=False)
+        geo_orig, mask, uv_bbox = load_data(garment_fp, save_vis=False, shape_dedup=args.shape_dedup)
 
-        # extract boundary points => resample boundary points
-        #                         => split boundary into edges (contour_nes)
+        # extract boundary points => resample boundary points => split boundary into edges (contour_nes)
         resampled_points_3D, resampled_points_2D, contour_nes, panel_nes, edge_approx, panel_instance_seg, contour_nps = (
             extract_boundary_pts(geo_orig, uv_bbox, mask, delta=cfg["delta"], RESO=cfg["RESO"], erode_size=cfg.get("erode_size", 3), show_2d_approx=False))
 
@@ -1497,5 +1583,5 @@ if __name__ == "__main__":
             panel_instance_seg,
             garment_json,
             full_uv_info,
-            cfg, fp, g_basename=g_basename
+            cfg, garment_fp, g_basename=g_basename
         )

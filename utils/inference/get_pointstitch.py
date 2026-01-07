@@ -1,8 +1,6 @@
 import torch
 import numpy as np
 from utils import (
-    pointcloud_visualize,
-    pointcloud_and_stitch_logits_visualize,
     hungarian,
     stitch_mat2indices,
     stitch_indices2mat
@@ -14,7 +12,7 @@ def get_pointstitch(batch, inf_rst,
                     filter_neighbor_stitch = True, filter_neighbor=7,
                     filter_too_long = True, filter_length = 0.2,
                     filter_too_small = True, filter_prob = 0.2,
-                    only_triu = False, filter_uncontinue = False):
+                    only_triu = False):
     """
     :param batch:           # garment_jigsaw model input
     :param inf_rst:         # garment_jigsaw model output

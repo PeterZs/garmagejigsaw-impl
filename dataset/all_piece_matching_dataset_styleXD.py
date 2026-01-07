@@ -32,7 +32,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
     def __init__(
             self,
             data_dir,
-            data_types = (),
+            # data_types = (),
 
             num_points=1000,    # point sample num per garment
             min_num_part=2,
@@ -67,7 +67,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
 
         self.mode = mode
         self.data_dir = data_dir
-        self.data_types = data_types
+        # self.data_types = data_types
 
         self.dataset_split_dir = dataset_split_dir
         self.inference_data_list = inference_data_list
@@ -127,31 +127,22 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         if self.mode in ["train", "val"]:
             with open(os.path.join(self.dataset_split_dir, f"{self.mode}.json") ,"r", encoding="utf-8") as f:
                 split = json.load(f)
-            mesh_dir = os.path.join(self.data_dir, self.mode)
-            data_list = [os.path.join(mesh_dir, dir_) for dir_ in split]
-            return data_list
+            data_list = [os.path.join(self.data_dir, dir_) for dir_ in split]
+            # Ensure Valid
+            data_list_filter = []
+            for dir in data_list:
+                if os.path.isdir(dir) and len(glob(os.path.join(dir,"*.obj")))>0:
+                    data_list_filter.append(dir)
+            return data_list_filter
         elif self.mode == "inference":
-            if self.inference_data_list:
-                inference_data_list = []
-                for dir in self.inference_data_list:
-                    if not os.path.isdir(dir):
-                        continue
-                    if len(glob(os.path.join(dir, "*.obj")))==0:
-                        continue
-                    inference_data_list.append(dir)
-                self.data_list = inference_data_list
-                del self.inference_data_list
-            else:
-                assert len(self.data_types)!=0, "self.data_types can't be empty in inference."
-                self.data_types = list(dict.fromkeys(self.data_types))
-                data_list = []
-                for type_name in self.data_types:
-                    mesh_dir = os.path.join(self.data_dir, self.mode)
-                    mesh_dir = os.path.join(mesh_dir, type_name)
-                    assert os.path.exists(mesh_dir), f"No data folder corresponding to data_types:{self.data_types}"
-                    data_list.extend(sorted(glob(os.path.join(mesh_dir, "garment_*"))))
-                    data_list = [dir for dir in data_list if os.path.isdir(dir)]
-            return data_list
+            assert self.inference_data_list is not None
+            # Ensure Valid
+            data_list_filter = []
+            for dir in self.inference_data_list:
+                if os.path.isdir(dir) and len(glob(os.path.join(dir,"*.obj")))>0:
+                    data_list_filter.append(dir)
+            del self.inference_data_list
+            return data_list_filter
         else:
             raise KeyError(f"mode {self.mode} not supported.")
 
@@ -820,7 +811,7 @@ def build_stylexd_dataloader_inference(cfg, inference_data_list=None):
     data_dict = dict(
         mode="inference",
         data_dir=cfg.DATA.DATA_DIR,
-        data_types=cfg.DATA.DATA_TYPES.INFERENCE,
+        # data_types=cfg.DATA.DATA_TYPES.INFERENCE,
 
         num_points=cfg.DATA.NUM_PC_POINTS,
         min_num_part=cfg.DATA.MIN_NUM_PART,

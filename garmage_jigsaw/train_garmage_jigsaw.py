@@ -76,20 +76,14 @@ def train_model(cfg):
     model = build_model(cfg)
 
     trainer = pl.Trainer(**trainer_dict)
-
     train_loader, val_loader = build_stylexd_dataloader_train_val(cfg)
 
     with torch.autograd.set_detect_anomaly(True):
-        if not cfg.TRAIN.FINETUNE:
-            print("Start training")
-            trainer.fit(model, train_loader, val_loader, ckpt_path=ckp_path)
-            print("Done training")
-        else:
-            if ckp_path is not None:
-                model.load_state_dict(torch.load(ckp_path)['state_dict'])
-            print("Start finetuning")
-            trainer.fit(model, train_loader, val_loader)
-            print("Done finetuning")
+        if cfg.TRAIN.FINETUNE and ckp_path is not None:
+            model.load_state_dict(torch.load(ckp_path)['state_dict'])
+        print("Start finetuning")
+        trainer.fit(model, train_loader, val_loader)
+        print("Done finetuning")
 
 
 if __name__ == "__main__":

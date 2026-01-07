@@ -2,11 +2,19 @@
 predict point stitches
 extract seg2seg stitches
 save results
+
+Best configuration:
+    Update the model for one round using BatchNorm.
+    pretrained/train_on_Q4_feature_conv/PClocal+UVlocal_FconvK55D11_tfB3_sn12_bn4_globalSL_STloss0.1_Sample2500/_inference.yaml
+      + UPDATE_DIS_ITER = 1
+        ADD_NOISE_INFERENCE = True
+        NOISE_STRENGTH = 6
 """
 
 import os.path
 import argparse
 from tqdm import tqdm
+from glob import glob
 
 import torch
 import numpy as np
@@ -19,26 +27,57 @@ from utils import  (
     set_seed,
     to_device,
     get_pointstitch,
-    pointstitch_2_edgestitch4,
     pointstitch_2_edgestitch5,
     export_video_results)
 
-# === Inference ===
-UPDATE_DIS_ITER = 1
-ADD_NOISE_INFERENCE = True
-NOISE_STRENGTH = 6
 
 # === VIS ===
 export_vis_result = False
 export_vis_source = True
 
 
-def add_noise_on_garmage(batch, noise_strength=3):
+def save_bn_stats(model):
+    """
+    Iterate through all BatchNorm layers in the model and save
+    their running_mean and running_var.
+    """
+    stats = {}
+    for name, module in model.named_modules():
+        if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
+            # Set momentum (note: PyTorch default is 0.1, 0.9 is unusually high)
+            module.momentum = 0.9
+
+            # Copy tensors to CPU as a precaution and ensure they are detached from the autograd graph
+            stats[name] = {
+                'running_mean': module.running_mean.clone().detach(),
+                'running_var': module.running_var.clone().detach()
+            }
+    return stats
+
+
+def restore_bn_stats(model, stats_checkpoint):
+    """
+    Iterate through all BatchNorm layers in the model and restore
+    their state using the saved statistical data.
+    """
+    for name, module in model.named_modules():
+        if isinstance(module, torch.nn.modules.batchnorm._BatchNorm) and name in stats_checkpoint:
+            module.running_mean.data.copy_(stats_checkpoint[name]['running_mean'])
+            module.running_var.data.copy_(stats_checkpoint[name]['running_var'])
+
+            # Ensure the BN layer is set to track running statistics
+            module.track_running_stats = True
+
+            # Restore the momentum set during training (usually 0.1)
+            module.momentum = 0.1
+
+
+def add_noise_on_garmage(batch, inf_noise_strength=3):
     """
     Add noise on generated Garmage`s boundary pcs (same way as training)
     """
-    if ADD_NOISE_INFERENCE:
-        stitch_noise_strength3 = noise_strength
+    if inf_noise_strength>0:
+        stitch_noise_strength3 = inf_noise_strength
         noise3 = (np.random.rand(*(batch["pcs"].shape)) * 2. - 1.)
         noise3 = noise3 / (np.linalg.norm(noise3, axis=1, keepdims=True) + 1e-6)
         noise3 = noise3 * stitch_noise_strength3 * 0.0072
@@ -48,7 +87,7 @@ def add_noise_on_garmage(batch, noise_strength=3):
 
 
 def remove_noise_on_garmage(batch):
-    if ADD_NOISE_INFERENCE:
+    if "pcs_before_add_noise_inference" in batch:
         batch["pcs"] = batch["pcs_before_add_noise_inference"]
         del batch["pcs_before_add_noise_inference"]
 
@@ -56,7 +95,11 @@ def remove_noise_on_garmage(batch):
 def get_inference_args(parser:argparse.ArgumentParser):
     assert isinstance(parser, argparse.ArgumentParser)
     parser.add_argument("--weight_file", default=None, type=str)
-    parser.add_argument("--data_dir", default=None, type=str)
+    parser.add_argument("--data_dir", default="data/stylexd_jigsaw/inference/_tmp_Garmage256", type=str)
+
+    # inference noise
+    parser.add_argument("--update_dis_iter", default=1, type=int)
+    parser.add_argument("--inf_noise_strength", default=6, type=int)
 
 
 def check_inference_cfg(cfg, args):
@@ -71,9 +114,13 @@ def check_inference_cfg(cfg, args):
             raise FileNotFoundError(args.weight_file)
         cfg.WEIGHT_FILE = args.weight_file
 
-    # set inference data loading file
-    if args.data_dir is not None:
-        cfg.DATA.DATA_DIR = args.data_dir
+    # Ensure no panel noise.
+    cfg.DATA.SCALE_RANGE = 0
+    cfg.DATA.ROT_RANGE = 0
+    cfg.DATA.TRANS_RANGE = 0
+    cfg.DATA.BBOX_NOISE_STRENGTH = 0
+
+    args.save_dir = os.path.join(os.path.dirname(args.data_dir), "jigsaw_output")
 
     return cfg
 
@@ -91,16 +138,21 @@ if __name__ == "__main__":
     )
 
     cfg = check_inference_cfg(cfg, args)
+    update_dis_iter = args.update_dis_iter
+    inf_noise_strength = args.inf_noise_strength
 
-    # model = build_model(cfg).load_from_checkpoint(cfg.WEIGHT_FILE).cuda()
-    ModelClass = type(build_model(cfg))
-    model = ModelClass.load_from_checkpoint(cfg.WEIGHT_FILE, cfg=cfg, weights_only=False).cuda()
+    model = build_model(cfg).load_from_checkpoint(cfg.WEIGHT_FILE).cuda()
     model.pc_cls_threshold = 0.5
-
     model.eval()
 
-    inference_loader = build_stylexd_dataloader_inference(cfg)
+    bn_stats_checkpoint = save_bn_stats(model)
+
+    # build inference dataloader
+    inference_data_list = {os.path.dirname(p) for p in glob(os.path.join(args.data_dir,"**","*.obj"), recursive=True)}
+    inference_data_list = sorted(list(inference_data_list),key=lambda x: os.path.basename(x))
+    inference_loader = build_stylexd_dataloader_inference(cfg, inference_data_list=inference_data_list)
     for idx, batch in tqdm(enumerate(inference_loader)):
+        try:
             batch = to_device(batch, model.device)
 
             # === Avoid excessive number of vertices ===
@@ -110,18 +162,20 @@ if __name__ == "__main__":
 
             try: data_id = int(os.path.basename(batch['mesh_file_path'][0]).split("_")[1])
             except Exception: data_id = idx
-
             g_basename = os.path.basename(batch['mesh_file_path'][0])
 
             # === model inference ===
-            add_noise_on_garmage(batch, noise_strength=NOISE_STRENGTH)
-            # Warm up stage
-            if UPDATE_DIS_ITER>0:
+            add_noise_on_garmage(batch, inf_noise_strength=inf_noise_strength)
+
+            # Warm up stage (BatchNorm Adaption)
+            if update_dis_iter>0:
                 with torch.no_grad():
+                    restore_bn_stats(model, bn_stats_checkpoint)
                     model.train()
-                    for i in range(UPDATE_DIS_ITER):
+                    for i in range(update_dis_iter):
                         inf_rst = model(batch)
                     model.eval()
+
             # inference stage
             with torch.no_grad():
                 inf_rst = model(batch)
@@ -134,21 +188,16 @@ if __name__ == "__main__":
                                 filter_neighbor_stitch=True, filter_neighbor = 1,
                                 filter_too_long=True, filter_length=0.12,
                                 filter_too_small=True, filter_prob=0.11,
-                                only_triu=True, filter_uncontinue=True))
+                                only_triu=True))
             batch = to_device(batch, "cpu")
 
             # === get seg2seg stitches ===
-            # edgestitch_results = pointstitch_2_edgestitch4(batch, inf_rst,
-            #                                                stitch_mat_full, stitch_indices_full,
-            #                                                unstitch_thresh=12, fliter_len=3, division_thresh = 3,
-            #                                                optimize_thresh_neighbor_index_dis=6,
-            #                                                optimize_thresh_side_index_dis=3,
-            #                                                auto_adjust=False)
-            edgestitch_results = pointstitch_2_edgestitch5(
-                batch, inf_rst,
-                stitch_mat_full,
-                stitch_indices_full
-            )
+            edgestitch_results = pointstitch_2_edgestitch5(batch, inf_rst,
+                                                           stitch_mat_full, stitch_indices_full,
+                                                           unstitch_thresh=6, fliter_len=2, division_thresh = 5,
+                                                           optimize_thresh_neighbor_index_dis=6,
+                                                           optimize_thresh_side_index_dis=8,
+                                                           auto_adjust=False)
             garment_json = edgestitch_results["garment_json"]
 
             # === export visualization data ===
@@ -159,6 +208,7 @@ if __name__ == "__main__":
             if export_vis_result:
                 export_video_results(batch, inf_rst, stitch_pcs, unstitch_pcs, stitch_indices, logits, data_id,
                                      vid_len=240, output_dir=os.path.join("_tmp","video_rotate"))
+
             # export visualization source data
             if export_vis_source:
                 batch_np = {}
@@ -185,11 +235,17 @@ if __name__ == "__main__":
                 vis_resource = None
 
             # === save results ===
-            save_dir = "_tmp/inference_ps2es_output"
-            data_dir_list = cfg["DATA"]["DATA_TYPES"]["INFERENCE"]
-            data_dir = "+".join(data_dir_list)
-            save_dir  = os.path.join(save_dir, data_dir)
-            save_result(save_dir, data_id=data_id, garment_json=garment_json, fig=fig_comp, g_basename=g_basename
-                        , vis_resource=vis_resource, mesh_file_path=batch['mesh_file_path'][0])
+            save_reldir = os.path.relpath(batch["mesh_file_path"][0], args.data_dir)
+            save_dir = os.path.join(args.save_dir, save_reldir)
+            save_result(
+                save_dir,
+                garment_json=garment_json,
+                fig=fig_comp, vis_resource=vis_resource,
+                mesh_file_path=batch['mesh_file_path'][0]
+            )
 
             torch.cuda.empty_cache()
+
+        except Exception as e:
+            print(e)
+            continue
