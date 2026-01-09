@@ -132,8 +132,11 @@ def load_Garmage_pkl(garment_fp):
     with open(garment_fp, "rb") as f:
         data = pickle.load(f)
 
+    for k in data:
+        if isinstance(data[k], list):
+            data[k] = np.array(data[k])
+
     geo_ncs = data["surf_ncs"]
-    # uv = data["surf_uv_ncs"]
     uv = None
     mask = data["surf_mask"]
 
@@ -358,7 +361,7 @@ def query_geo_img_one_panel(query_uv, panel_spec, geo_img, mask_img):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', default="<garmagenet-output-dir>/arrangement", type=str)
+    parser.add_argument('--data_dir', default="/data/lsr/resources/tmp/arrangement", type=str)
     args = parser.parse_args()
 
     data_dir = args.data_dir

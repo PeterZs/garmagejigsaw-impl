@@ -1140,6 +1140,30 @@ def simplify_edge_points_GlobalMax(points: np.ndarray, max_controls: int, tolera
 
 # --- Main Function ---
 
+def uniform_sample_by_arc_length(points: np.ndarray, num_samples: int) -> np.ndarray:
+    if len(points) < 2 or num_samples <= 0:
+        return np.empty((0, 2))
+
+    diffs = np.diff(points, axis=0)
+    seg_lengths = np.linalg.norm(diffs, axis=1)
+    arc = np.concatenate([[0], np.cumsum(seg_lengths)])
+    total_len = arc[-1]
+
+    if total_len == 0:
+        return np.repeat(points[:1], num_samples, axis=0)
+
+    targets = np.linspace(0, total_len, num_samples + 2)[1:-1]
+
+    sampled = []
+    for t in targets:
+        i = np.searchsorted(arc, t) - 1
+        i = np.clip(i, 0, len(seg_lengths) - 1)
+        alpha = (t - arc[i]) / seg_lengths[i]
+        sampled.append((1 - alpha) * points[i] + alpha * points[i + 1])
+
+    return np.vstack(sampled)
+
+
 def approx_curve(resampled_points_2D: List[np.ndarray], edge_approx: List[List[List[int]]], contour_nps) -> List[List[np.ndarray]]:
     """
     Extracts control points for garment edges using a robust pipeline:
@@ -1220,14 +1244,20 @@ def approx_curve(resampled_points_2D: List[np.ndarray], edge_approx: List[List[L
                 # Segment ready for simplification
                 rdp_segment = smoothed_points[middle_start_idx:middle_end_idx]
 
-                # 4. Global Maximum Error Simplification
-                control_points_list = simplify_edge_points_GlobalMax(rdp_segment, MAX_CONTROLS, DISTANCE_TOLERANCE)
+                # # 4. Global Maximum Error Simplification
+                # control_points_list = simplify_edge_points_GlobalMax(rdp_segment, MAX_CONTROLS, DISTANCE_TOLERANCE)
+                #
+                # # 5. Result Consolidation
+                # if len(control_points_list) > 0:
+                #     control_points = np.vstack(control_points_list)
+                # else:
+                #     control_points = np.array([])
 
-                # 5. Result Consolidation
-                if len(control_points_list) > 0:
-                    control_points = np.vstack(control_points_list)
-                else:
-                    control_points = np.array([])
+                # 4. Uniform sampling between endpoints (no parameter changes)
+                control_points = uniform_sample_by_arc_length(
+                    rdp_segment,
+                    MAX_CONTROLS
+                )
 
                 # 6. Construct the final output: Middle points + strictly original endpoints
                 if control_points.ndim == 2 and control_points.shape[0] > 0:
