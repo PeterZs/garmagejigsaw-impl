@@ -1,8 +1,3 @@
-"""
-相比于4，改进了两端板片相同的缝合的聚类算法
-现在会根据缝合两边的位置构建连通子图，从而进行聚类操作
-"""
-
 
 import json
 import uuid
@@ -54,7 +49,7 @@ def get_new_stitch_edge(start_point=None, end_point=None, target_edge=None, isCC
 
 def filter_too_short(all_stitch_points_list, isCC_order_list=None, fliter_len = 1):
     """
-    过滤掉太短的缝合
+    filter stitch with too less points.
     :param all_stitch_points_list:
     :param isCC_order_list:
     :param fliter_len:
@@ -77,7 +72,7 @@ def filter_too_short(all_stitch_points_list, isCC_order_list=None, fliter_len = 
 
 def cal_stitch_edge_param_dis(stitch_edge, all_contour_info):
     """
-    计算一个缝合边的param_dis
+    Compute the param distance of a stitch edge
     :param stitch_edge:
     :param all_contour_info:
     :return:
@@ -87,7 +82,7 @@ def cal_stitch_edge_param_dis(stitch_edge, all_contour_info):
     end_key = "end_point" if not stitch_edge["isCC"] else "start_point"
     start_point = stitch_edge[start_key]
     end_point = stitch_edge[end_key]
-    # 计算两个点的param的差距
+    # Compute the param difference between the two points
     if end_point['global_param'] >= start_point['global_param']:
         param_dis = end_point['global_param'] - start_point['global_param']
     else:
@@ -98,7 +93,7 @@ def cal_stitch_edge_param_dis(stitch_edge, all_contour_info):
 
 def cal_stitch_edge_middle_index(stitch_edge, all_contour_info):
     """
-    计算一个缝合边居中位置的点id
+    Compute the point ID at the middle position of a stitch edge
     :param stitch_edge:
     :param all_contour_info:
     :return:
@@ -108,7 +103,7 @@ def cal_stitch_edge_middle_index(stitch_edge, all_contour_info):
     end_key = "end_point" if not stitch_edge["isCC"] else "start_point"
     start_point = stitch_edge[start_key]
     end_point = stitch_edge[end_key]
-    # 计算两个点的param的差距
+    # Compute the index distance between the two points
     if end_point['id'] >= start_point['id']:
         index_dis = end_point['id'] - start_point['id']
     else:
@@ -131,7 +126,7 @@ def cal_stitch_edge_index_dis(stitch_edge, all_contour_info):
     end_key = "end_point" if not stitch_edge["isCC"] else "start_point"
     start_point = stitch_edge[start_key]
     end_point = stitch_edge[end_key]
-    # 计算两个点的param的差距
+    # Compute the index distance between the two points
     if end_point['id'] >= start_point['id']:
         index_dis = end_point['id'] - start_point['id']
     else:
@@ -142,7 +137,8 @@ def cal_stitch_edge_index_dis(stitch_edge, all_contour_info):
 
 def cal_neigbor_points_param_dis(start_point, end_point, all_contour_info):
     """
-    计算一个环上的两个点之间的双向param_dis(仅用于计算较近的点之间的距离)
+    Compute the bidirectional param distance between two points on a loop
+    (used only for calculating the distance between relatively close points)
     :param start_point:
     :param end_point:
     :param all_contour_info:
@@ -166,7 +162,8 @@ def cal_neigbor_points_param_dis(start_point, end_point, all_contour_info):
 
 def global_param2point_id(global_param, contour_info):
     """
-    根据输入的global_param + contour_info，找到这个global_param对应的（浮点数的）point_id，以及最近的俩 point
+    Given the input global_param and contour_info, find the (floating-point) point_id
+    corresponding to this global_param, as well as the two nearest points
     :param global_param:
     :param contour_info:
     :return:
@@ -174,14 +171,6 @@ def global_param2point_id(global_param, contour_info):
     dis_tensor=abs(contour_info["all_points_global_param"] - global_param)
     values, indices = torch.topk(dis_tensor, 2, largest=False)
     first_near, second_near = contour_info["all_points_info"][indices[0]], contour_info["all_points_info"][indices[1]]
-
-    # # [todo] 如果first_near的global_param在contour的某一端上，将second_near设置为另一端
-    # if first_near==contour_info['all_points_global_param'][0] and global_param <= first_near["global_param"]:
-    #     second_near = contour_info['all_points_global_param'][-1]
-    #     values[1] =
-    #
-    # elif first_near==contour_info['all_points_global_param'][-1] and global_param >= first_near["global_param"]:
-    #     second_near = contour_info['all_points_global_param'][0]
 
     if values[0] < 1e-5:
         point_idx_float = first_near["id"]
@@ -193,7 +182,8 @@ def global_param2point_id(global_param, contour_info):
 
 def cal_neigbor_points_index_dis(start_point, end_point, all_contour_info):
     """
-    计算一个环上的两个点之间的双向index_dis(仅用于计算较近的点之间的距离)
+    Compute the bidirectional index distance between two points on a loop
+    (used only for calculating the distance between relatively close points)
 
     :param start_point:
     :param end_point:
@@ -207,13 +197,13 @@ def cal_neigbor_points_index_dis(start_point, end_point, all_contour_info):
 
     if end_point['id'] >= start_point['id']:
         index_dis = [
-            loop_len - (end_point['id'] - start_point['id']),  # 逆时针距离
-            end_point['id'] - start_point['id']  # 顺时针距离
+            loop_len - (end_point['id'] - start_point['id']),  # counter-clockwise distance
+            end_point['id'] - start_point['id']  # clockwise distance
         ]
     else:
         index_dis = [
-            start_point['id'] - end_point['id'],  # 顺时针距离（此时end < start）
-            loop_len - (start_point['id'] - end_point['id'])  # 逆时针距离
+            start_point['id'] - end_point['id'],  # clockwise distance (end < start in this case)
+            loop_len - (start_point['id'] - end_point['id'])  # counter-clockwise distance
         ]
 
     index_dis = [i.item() for i in index_dis]
@@ -222,7 +212,7 @@ def cal_neigbor_points_index_dis(start_point, end_point, all_contour_info):
 
 def find_nearst_pattern_side_point(point_info, all_edge_info, all_contour_info):
     """
-    找到一个点最近的板片端点
+    find nearst pattern side point of point_info
     :return:
     """
     edge_points = all_edge_info[point_info["edge_id"]]["points_info"]
@@ -523,23 +513,24 @@ def find_best_endpoints_np_left(stitch_points_info, contour_info, is_cc):
 def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
                               unstitch_thresh = 6, fliter_len=3, division_thresh = 6,
                               optimize_thresh_neighbor_index_dis = 4,
-                              optimize_thresh_side_index_dis=2, auto_adjust=False):
+                              optimize_thresh_side_index_dis=2):
 
     """
-    从点点缝合推导出线线缝合
+    Derive edge-to-edge stitching from point-to-point stitching
 
     :param batch:                       # garment_jigsaw model input
     :param inf_rst:                     # garment_jigsaw model output
-    :param stitch_mat:                  # mat of point&point stitch
-    :param stitch_indices:              # indices of point&point stitch
-    :param unstitch_thresh:             # continue unstitched point longer than this will create new stitch point list
-    :param fliter_len:                  # stitch point list shorter than or equal this will be filtered
-    :param division_thresh              # 缝合边中的相邻点之间的距离大过这个阈值时，会被划分为两个缝合边
-    :param optimize_thresh_neighbor_index_dis:   # neighbor stitch edges param_dis lower than this will be optimized
+    :param stitch_mat:                  # matrix of point-to-point stitches
+    :param stitch_indices:              # indices of point-to-point stitches
+    :param unstitch_thresh:             # unstitched point sequences longer than this will form a new stitch point list
+    :param fliter_len:                  # stitch point lists shorter than or equal to this will be filtered out
+    :param division_thresh              # if the distance between adjacent points on a stitch edge exceeds this threshold,
+                                        # it will be split into two stitch edges
+    :param optimize_thresh_neighbor_index_dis:   # neighboring stitch edges with param distance below this will be optimized
     :return:
     """
 
-    # 读取数据（V2的AIGP文件 和 边拟合结果）------------------------------------------------------------------------------------
+    # Load data (V2 AIGP file and edge fitting results) ------------------------------------------------------
     garment_json, panel_nes, contour_nes, edge_approx, panel_instance_seg = load_data(batch)
     device_ = stitch_mat.device
 
@@ -552,7 +543,7 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
     n_pcs_cumsum = torch.cumsum(n_pcs, dim=-1)
     contour_nes_cumsum = torch.cumsum(contour_nes, dim=-1)
 
-    # 将拟合边的index转换成全局坐标
+    # Convert fitted edge indices to global coordinates
     edge_approx_global = deepcopy(edge_approx)
     for contour_idx in range(len(n_pcs_cumsum)):
         if contour_idx == 0: edge_start_idx = 0
@@ -560,19 +551,15 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
         edge_end_idx = contour_nes_cumsum[contour_idx]
         if contour_idx!=0: edge_approx_global[edge_start_idx:edge_end_idx] += n_pcs_cumsum[contour_idx-1]
 
-    # 将每个点、边、contour的关键信息进行汇总 ----------------------------------------------------------------------------------
+    # Aggregate key information for each point, edge, and contour --------------------------------------------
     all_contour_info = {}
     all_edge_info = {}
     all_point_info = {}
     very_small_gap = 1e-5
-    global_param = 0  # 一个点的全局param
-    contourid2panelid = {}  # 用于将contour_id映射到panel_id
+    global_param = 0  # global param of a point
+    contourid2panelid = {}  # map contour_id to panel_id
 
     for contour_idx in range(len(n_pcs_cumsum)):
-
-        # #[test]
-        # if contour_idx == 10:
-        #     a=1
 
         panel_instance_idx = panel_instance_seg[contour_idx]
         if contour_idx == 0:
@@ -584,16 +571,16 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
         point_end_idx = n_pcs_cumsum[contour_idx]
         edge_end_idx = contour_nes_cumsum[contour_idx]
 
-        # 判断是否净边（isOL）
+        # Determine whether this is an outline contour (isOL)
         isOL, contour_pos = is_contour_OutLine(contour_idx, panel_instance_seg)
 
-        # === 构建每个Panel的信息 ===
-        # 这个contour上的点
+        # === Build information for each panel ===
+        # Points on this contour
         contour_points = pcs[point_start_idx:point_end_idx]
-        # 局部/全局 拟合边
+        # Local / global fitted edges
         contour_edges_approx = edge_approx[edge_start_idx:edge_end_idx]
         contour_edges_approx_global = edge_approx_global[edge_start_idx:edge_end_idx]
-        # 这个contour上有几个拟合边，几个点
+        # Number of fitted edges and points on this contour
         contour_edge_num = contour_edges_approx.shape[-2]
         contour_point_num = contour_points.shape[-2]
         panel_json = garment_json["panels"][panel_instance_idx]
@@ -603,7 +590,7 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
 
         all_contour_info[contour_id] = {"id":contour_id, "edges_info":{}}
         contour_info = all_contour_info[contour_id]
-        contour_info["param_start"] = global_param  # 这个Panel的param的最小值
+        contour_info["param_start"] = global_param  # minimum param of this panel
         contour_info["param_end"] = []
         contour_info["index_end"] = point_end_idx-1
         contour_info["index_start"] = point_start_idx if isinstance(point_start_idx,torch.Tensor) \
@@ -612,23 +599,24 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
         seqEdges_json = panel_json["seqEdges"][contour_pos]
         contourid2panelid[contour_id] = panel_json["id"]
         for edge_idx, (e_approx, e_approx_global) in enumerate(zip(contour_edges_approx, contour_edges_approx_global)):
-            # === 构建每个Edge的信息 ===
+            # === Build information for each edge ===
             edge_json = seqEdges_json["edges"][edge_idx]
             all_edge_info[edge_json["id"]] = {"id":edge_json["id"], "contour_id":contour_info["id"], "points_info":[]}
             edge_info = all_edge_info[edge_json["id"]]
             contour_info["edges_info"][edge_json["id"]] = edge_info
-            # 获取这个Panel上每个edge上的所有点的按顺序的index
+            # Get ordered point indices for this edge on the panel
             if ((edge_idx==0 and e_approx_global[0]>e_approx_global[1]) or (edge_idx==contour_edge_num-1 and e_approx_global[0]>e_approx_global[1])):
                 edge_points_idx = torch.concat([torch.arange(e_approx_global[0], point_end_idx), torch.arange(point_start_idx, e_approx_global[1]+1)])
             else:
                 edge_points_idx = torch.arange(e_approx_global[0], e_approx_global[1]+1)
 
-            # 这个边的param的最小值
+            # Minimum param of this edge
             edge_info["param_start"] = global_param
             for idx, point_idx in enumerate(edge_points_idx):
-                # === 构建每个Point的信息 ===
-                # 计算当前点的param (我添加了一个很小的offset来防止一些报错，并且这些offset会在后续处理中被修复)
-                param = idx / (len(edge_points_idx) - 1)  # 这个点在边上的位置
+                # === Build information for each point ===
+                # Compute param of the current point (a very small offset is added to avoid errors,
+                # and these offsets will be fixed in later processing)
+                param = idx / (len(edge_points_idx) - 1)  # relative position of this point on the edge
                 if idx==0: param+=very_small_gap
                 elif idx==len(edge_points_idx)-1: param-=very_small_gap
 
@@ -639,59 +627,59 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
                 pt_key = point_idx.tolist()
                 if not pt_key in all_point_info.keys():
                     all_point_info[pt_key] = [point_info]
-                else:  # 重复的点（两个边的交汇处）
+                else:  # duplicate point (intersection of two edges)
                     all_point_info[pt_key].append(point_info)
 
-            # 一条边上的点全部计算完后，global_param+1后作为下一条边的起始 param_start
+            # After all points on this edge are processed, increment global_param by 1 for the next edge
             global_param+=1
-        # contour_info["all_points_info"]在优化缝合时会大量重复调用，因此我在这里提前获取
+        # contour_info["all_points_info"] will be frequently accessed during stitch optimization,
+        # so it is precomputed here
         contour_info["all_points_info"] = [point for e in contour_info["edges_info"] for point in contour_info["edges_info"][e]["points_info"]]
         contour_info["all_points_global_param"] = torch.tensor([point["global_param"] for point in contour_info["all_points_info"]])
-        # 这个Panel的param的最大值
+        # Maximum param of this panel
         contour_info["param_end"] = global_param
 
-    # 获取N个由缝合点对组成的list ------------------------------------------------------------------------------------】
+    # Obtain N lists of point-to-point stitches --------------------------------------------------------------
     """ 
-    对每个contour，获取其上的所有点点缝合
-    对这些点点缝合，按照缝合两端的contour_id划分为N组点点缝合
-    对每组点点缝合，在其中间距过大的地方进行断开
+    For each contour, obtain all point-to-point stitches on it
+    Group these point-to-point stitches by the contour_id of the stitched endpoints
+    For each group, break it at locations where the spacing is too large
     """
 
-    # 点点缝合映射
+    # Point-to-point stitch map
     stitch_map = torch.zeros((len(pcs)), dtype=torch.int64, device=device_)-1
-    # 只取前一半，否则导入软件后会出现BUG
+    # Only take the first half; otherwise importing into the software will cause bugs
     stitch_map[stitch_indices[:, 0]] = stitch_indices[:, 1]
     # stitch_map[stitch_indices[:, 1]] = stitch_indices[:, 0]
 
-    # 遍历这个Panel上的所有缝合点对，将这些点标记为缝合点
+    # Traverse all stitch point pairs on this panel and mark these points as stitched
     for contour_id in all_contour_info:
-        # 获取这个contour上的边信息
+        # Get edge information on this contour
         contour_info = all_contour_info[contour_id]
         contour_edges_info = contour_info["edges_info"]
 
         for edge_id in contour_edges_info:
-            # 获取这个边上的点信息
+            # Get point information on this edge
             edge_info = contour_edges_info[edge_id]
             edge_points_info = edge_info["points_info"]
 
             for idx, point_info in enumerate(edge_points_info):
-                # 当前点 和它缝合的点
+                # Current point and its stitched counterpart
                 point_idx = point_info["id"]
                 point_idx_cor = stitch_map[point_idx]
 
-                # 将它们标记为缝合点
+                # Mark them as stitch points
                 if point_idx.item()>=0 and point_idx_cor.item()>=0:
                     for p_l in [all_point_info[point_idx.item()], all_point_info[point_idx_cor.item()]]:
                         for p in p_l:
                             p["is_stitch"] = True
 
-    # [pl for pl in all_stitch_points_list if (pl[0][0]["contour_id"] == list(all_contour_info.keys())[10] and pl[0][1][0]["contour_id"] == list(all_contour_info.keys())[11])]
     all_stitch_points_list = []
     for contour_id in all_contour_info:
         contour_info = all_contour_info[contour_id]
         contour_edges_info = contour_info["edges_info"]
 
-        # 获取出发于同一个contour的所有点点缝合 ===
+        # Collect all point-to-point stitches originating from the same contour ===
         contour_stitch_points = []
         contour_stitch_list = []
         for edge_id in contour_edges_info:
@@ -712,8 +700,8 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
 
         # ==================
 
-        # === 构造节点 ===
-        # 每一对缝合视作一个node
+        # === Build nodes ===
+        # Each stitch pair is treated as a node
         nodes = []
         nodes_info = []
         contour_stitch_list_sorted = sorted(contour_stitch_list, key=lambda p: (p[1][0]["contour_id"]))
@@ -722,31 +710,31 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
             nodes.append(stitch)
         node_count = len(nodes_info)
 
-        # === 构建每个缝合两端的邻接表 ===
-        # 如果任意两个node的缝合的左端的间距小于阈值，则这两个node在adj1是连通的
-        # 缝合右端同理
-        adj1 = [set() for _ in range(node_count)]   # 缝合左端的图
-        adj2 = [set() for _ in range(node_count)]   # 缝合右端的图
+        # === Build adjacency lists for both ends of each stitch ===
+        # If the distance between the left ends of any two nodes is below the threshold,
+        # they are connected in adj1; similarly for the right ends
+        adj1 = [set() for _ in range(node_count)]   # graph for left ends
+        adj2 = [set() for _ in range(node_count)]   # graph for right ends
 
         for i in range(node_count):
             for j in range(i + 1, node_count):
                 if nodes[i][1][0]["contour_id"] != nodes[j][1][0]["contour_id"]:
                     continue
-                # 缝合左端与其它所有node的间距
+                # Distance between left ends and all other nodes
                 d1 = min(cal_neigbor_points_index_dis(
                     nodes[i][0], nodes[j][0], all_contour_info))
                 if d1 <= unstitch_thresh:
                     adj1[i].add(j)
                     adj1[j].add(i)
 
-                # 缝合右端与其它所有node的间距
+                # Distance between right ends and all other nodes
                 d2 = min(cal_neigbor_points_index_dis(
                     nodes[i][1][0], nodes[j][1][0], all_contour_info))
                 if d2 <= unstitch_thresh:
                     adj2[i].add(j)
                     adj2[j].add(i)
 
-        # === 判断一个子图是否连通 ===
+        # === Check whether a subgraph is connected ===
         def is_connected_subset(subset, adj):
             if not subset:
                 return True
@@ -762,9 +750,9 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
                         dq.append(v)
             return visited == S
 
-        # === 执行双环连通聚类 ===
+        # === Perform double-graph connectivity clustering ===
         remaining = set(range(node_count))
-        groups = [] # 用于保存从当前contour出发的所有缝合的聚类结果
+        groups = [] # stores clustering results of stitches originating from the current contour
 
         while True:
             if len(remaining) < 2:
@@ -801,61 +789,15 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
             if not made_group:
                 break
 
-        leftover = [nodes[x] for x in sorted(remaining)]
         all_stitch_points_list.extend(groups)
-        # ==================
 
-        # contour_stitch_list_sorted = sorted(contour_stitch_list, key=lambda p: (p[1][0]["contour_id"]))
-        # stitch_points_list = []
-        # for stitch in contour_stitch_list_sorted:
-        #     if len(stitch_points_list)==0:
-        #         stitch_points_list.append(stitch)
-        #         continue
-        #     # 对这些点点缝合，按照缝合两端的contour_id划分为N组点点缝合 ===
-        #     if stitch[1][0]["contour_id"] != stitch_points_list[-1][1][0]["contour_id"]:
-        #         all_stitch_points_list.append(stitch_points_list)
-        #         stitch_points_list=[]
-        #         stitch_points_list.append(stitch)
-        #         continue
-        #     else:
-        #         # 对每组点点缝合，在其中间距过大的地方进行断开 ===
-        #         # 缝合点和上一个缝合的缝合点的间距
-        #         index_dis1 = min(cal_neigbor_points_index_dis(stitch[0], stitch_points_list[-1][0], all_contour_info))
-        #         # 被缝合点和上一个缝合的被缝合点的间距
-        #         index_dis2 = min(cal_neigbor_points_index_dis(stitch[1][0], stitch_points_list[-1][1][0], all_contour_info))
-        #
-        #         if index_dis1<thresh_side_dis and index_dis2<thresh_side_dis:
-        #             stitch_points_list.append(stitch)
-        #             continue
-        #         else:
-        #             # # [test]
-        #             # if (list(all_contour_info.keys())[4] == stitch_points_list[0][0]["contour_id"] and
-        #             #     list(all_contour_info.keys())[4] == stitch_points_list[-1][1][0]["contour_id"]):
-        #             #     a=1
-        #             #     cal_neigbor_points_index_dis(stitch[1][0], stitch_points_list[-1][1][0], all_contour_info)
-        #             #     # [p[1][0] for p in contour_stitch_list_sorted]
-        #             #     # stitch[1][0], stitch_points_list[-1][1][0]
-        #             #     # all_contour_info[contour_stitch_list_sorted[0][1][0]["contour_id"]]
-        #             #     # pointcloud_visualize(pcs[torch.tensor([p['id'] for p in [stitch[1][0], stitch_points_list[-1][1][0]]])])
-        #             # else:
-        #             #     pass
-        #             all_stitch_points_list.append(stitch_points_list)
-        #             stitch_points_list=[]
-        #             stitch_points_list.append(stitch)
-        #             continue
-        #
-        # # 如果最后的stitch_points_list不为空，append到all
-        # if len(stitch_points_list) > 0:
-        #     all_stitch_points_list.append(stitch_points_list)
-
-    # [test] [pl for pl in all_stitch_points_list if (pl[0][0]["contour_id"] == list(all_contour_info.keys())[10] and pl[0][1][0]["contour_id"] == list(all_contour_info.keys())[11])]
-    # 将太短的全部过滤掉 ---------------------------------------------------------------------------------------------------
+    # Filter out overly short stitch lists -------------------------------------------------------------------
     """
-    上一步获取的点点缝合中，会包含过于短的
+    The point-to-point stitches obtained in the previous step may include very short ones
     """
     all_stitch_points_list, _ = filter_too_short(all_stitch_points_list, fliter_len = fliter_len)
 
-    # 将被缝合点由list换成dict ---------------------------------------------------------------------------
+    # Convert stitched points from list to dict --------------------------------------------------------------
     for s_idx, stitch_points_list in enumerate(all_stitch_points_list):
         for sp_idx, st_point in enumerate(stitch_points_list):
             if isinstance(st_point[1], list):
@@ -870,9 +812,6 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
     """
     isCC_order_list = []
     for s_idx, stitch_points_list in enumerate(all_stitch_points_list):
-        # # [test]
-        # if stitch_points_list[0][0]["contour_id"] == list(all_contour_info.keys())[3] and stitch_points_list[0][1]["contour_id"] == list(all_contour_info.keys())[3]:
-        #     a=1
         isCC_order_list.append([None,None])
         # 缝边和被缝边分别计算时针方向
         for i in range(2):
@@ -899,16 +838,11 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
     因此在排序时，用点与点在contour上顺+逆时针上的距离作为依据，并且不处理间距过大的，实现聚类的效果
     """
     def compare_fun(x1, x2):
-        # # [test]
-        # return 0
-
         # 或取顺逆时针方向，点x1 到 点x2 的间距
         y1, y2 = cal_neigbor_points_index_dis(x1, x2, all_contour_info)
-
         # 顺+逆时针间距都过大：不进行排序（从而实现聚类的效果）
-        if min(y1, y2) > 10:
+        if min(y1, y2) > 8:
             return 0
-
         # 逆时针间距小：返回正数：x1 应该排在 x2 后面
         if y1 < y2:
             return 1
@@ -945,14 +879,10 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
                 unordered_stitch_points_list.append(stitch_point[1])
 
     # 一个边上的点间距过长，则拆分边 -------------------------------------------------------------------------------------------------
-    # [test] [pl for pl in all_stitch_points_list if (pl[0][0]["contour_id"] == list(all_contour_info.keys())[10] and pl[0][1]["contour_id"] == list(all_contour_info.keys())[11])]
     thresh = division_thresh
     new_all_stitch_points_list = []
     new_isCC_order_list = []
     for idx, stitch_points_list in enumerate(all_stitch_points_list):
-        # # [test]
-        # if stitch_points_list[0][0]["contour_id"] == list(all_contour_info.keys())[10] and stitch_points_list[0][1]["contour_id"] == list(all_contour_info.keys())[11]:
-        #     a=1
 
         stitch_point_stack = []
         for point_idx, stitch_point in enumerate(stitch_points_list):
@@ -1056,17 +986,6 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
         stitch_edge_list.append(stitch_edge_start)
         stitch_edge_list.append(stitch_edge_end)
 
-        # # # 【方法2】如果前面进行了排序，则用这个
-        # start_stitch_points = stitch_points_list[0]
-        # end_stitch_points = stitch_points_list[-1]
-        # stitch_edge_start = get_new_stitch_edge(start_stitch_points[0], end_stitch_points[0], isCC=isCC_order_list[s_idx][0])
-        # stitch_edge_end = get_new_stitch_edge(start_stitch_points[1], end_stitch_points[1], isCC=isCC_order_list[s_idx][1])
-        # stitch_edge_start["target_edge"] = stitch_edge_end
-        # stitch_edge_end["target_edge"] = stitch_edge_start
-        # stitch_edge_list.append(deepcopy(stitch_edge_start))
-        # stitch_edge_list.append(deepcopy(stitch_edge_end))
-
-    # [sl for sl in stitch_edge_list if (sl["start_point"]["contour_id"] == list(all_contour_info.keys())[10] and sl["target_edge"]["start_point"]["contour_id"] == list(all_contour_info.keys())[11])]
 
     # 将 离边端点特别近 且 不与其它缝边相衔接 的缝边的端点 的位置进行调整 ---------------------------------------------------------
     optimize_stitch_edge_list_byApproxEdge(stitch_edge_list, max(optimize_thresh_side_index_dis, 2), all_contour_info, all_edge_info)
@@ -1181,7 +1100,7 @@ def pointstitch_2_edgestitch(batch, inf_rst, stitch_mat, stitch_indices,
         for k in ['start_point', 'end_point']:
             stitch_edge[k]["panel_id"] = contourid2panelid[stitch_edge[k]["contour_id"]]
 
-    # 转格式
+    # change format
     stitch_edge_json_list = []
     for start_stitch_edge, end_stitch_edge in zip(stitch_edge_list[::2], stitch_edge_list[1::2]):
         stitch_edge_json = get_new_stitch()
