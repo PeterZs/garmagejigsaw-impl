@@ -142,8 +142,7 @@ The GarmageJigsaw outputs like following.
 <p align="center"><img src="assest/images/postprocess_GarmageJigsaw_output.png" width="100%"></p>
 
 ## 👕 Integrating to [Style3D Studio](https://studio.style3d.com/)
-GarmageJigsaw outputs a vectorized **sewing pattern** configuration stored in JSON format. 
-After triangulating it and arranging it using the geometry in **Garmage**, a garment that supports physical simulation can be obtained.
+As above, GarmageJigsaw outputs **vectorized sewing patterns** in JSON format (`garment.json`) while the draping initializations are provided as Garmage PKL (`orig_data.pkl`). To integrate the results into existing garment modeling pipeline, we need to triangulate the sewing pattern and transfer Garmage into per-vertex location. 
 
 ### 🦾Triangulation
 
