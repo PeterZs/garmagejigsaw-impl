@@ -6,7 +6,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.loggers import WandbLogger
 
 from model import build_model
-from dataset import build_stylexd_dataloader_train_val
+from dataset import build_garmageset_dataloader_train_val
 
 
 def train_model(cfg):
@@ -72,7 +72,7 @@ def train_model(cfg):
     model = build_model(cfg)
 
     trainer = pl.Trainer(**trainer_dict)
-    train_loader, val_loader = build_stylexd_dataloader_train_val(cfg)
+    train_loader, val_loader = build_garmageset_dataloader_train_val(cfg)
 
     with torch.autograd.set_detect_anomaly(True):
         if cfg.TRAIN.FINETUNE and ckp_path is not None:

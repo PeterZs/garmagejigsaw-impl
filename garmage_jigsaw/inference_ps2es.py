@@ -22,7 +22,7 @@ import numpy as np
 from model import build_model
 from utils import composite_visualize
 from utils.inference.save_result import save_result
-from dataset import build_stylexd_dataloader_inference
+from dataset import build_garmageset_dataloader_inference
 from utils import  (
     set_seed,
     to_device,
@@ -146,7 +146,7 @@ if __name__ == "__main__":
     # build inference dataloader
     inference_data_list = {os.path.dirname(p) for p in glob(os.path.join(args.data_dir,"**","*.obj"), recursive=True)}
     inference_data_list = sorted(list(inference_data_list),key=lambda x: os.path.basename(x))
-    inference_loader = build_stylexd_dataloader_inference(cfg, inference_data_list=inference_data_list)
+    inference_loader = build_garmageset_dataloader_inference(cfg, inference_data_list=inference_data_list)
     for idx, batch in tqdm(enumerate(inference_loader)):
         try:
             batch = to_device(batch, model.device)

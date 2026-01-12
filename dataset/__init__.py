@@ -1,3 +1,3 @@
 from .dataset_config_GarmageJigsaw import dataset_cfg
-from .all_piece_matching_dataset_styleXD import build_stylexd_dataloader_train_val
-from .all_piece_matching_dataset_styleXD import build_stylexd_dataloader_inference
+from .dataset_garmageset import build_garmageset_dataloader_train_val
+from .dataset_garmageset import build_garmageset_dataloader_inference

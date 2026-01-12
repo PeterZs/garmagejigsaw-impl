@@ -28,7 +28,7 @@ def smooth_using_convolution(noise, k=3):
     return smoothed_noise
 
 
-class AllPieceMatchingDataset_stylexd(Dataset):
+class Dataset_GarmageSet(Dataset):
     def __init__(
             self,
             data_dir,
@@ -734,7 +734,7 @@ class AllPieceMatchingDataset_stylexd(Dataset):
         return data_dict
 
 
-def build_stylexd_dataloader_train_val(cfg, shuffle_val_loader=False):
+def build_garmageset_dataloader_train_val(cfg, shuffle_val_loader=False):
     if cfg.NUM_WORKERS > 4:
         print("Too much workers may cause fault.")
 
@@ -771,7 +771,7 @@ def build_stylexd_dataloader_train_val(cfg, shuffle_val_loader=False):
 
         dataset_split_dir=cfg.DATA.DATASET_SPLIT_DIR,
     )
-    train_set = AllPieceMatchingDataset_stylexd(**data_dict)
+    train_set = Dataset_GarmageSet(**data_dict)
     train_loader = DataLoader(
         dataset=train_set,
         batch_size=cfg.BATCH_SIZE,
@@ -791,7 +791,7 @@ def build_stylexd_dataloader_train_val(cfg, shuffle_val_loader=False):
     data_dict["shrink_bystitch"] =  cfg.DATA.SHRINK_BYSTITCH.VAL
     data_dict["shrink_bystitch_strength"] = cfg.DATA.SHRINK_BYSTITCH_STRENGTH.VAL
 
-    val_set = AllPieceMatchingDataset_stylexd(**data_dict)
+    val_set = Dataset_GarmageSet(**data_dict)
     val_loader = DataLoader(
         dataset=val_set,
         batch_size=cfg.BATCH_SIZE,
@@ -804,7 +804,7 @@ def build_stylexd_dataloader_train_val(cfg, shuffle_val_loader=False):
     return train_loader, val_loader
 
 
-def build_stylexd_dataloader_inference(cfg, inference_data_list=None):
+def build_garmageset_dataloader_inference(cfg, inference_data_list=None):
     """
     used to load generated Garmage
     """
@@ -838,7 +838,7 @@ def build_stylexd_dataloader_inference(cfg, inference_data_list=None):
         dataset_split_dir=cfg.DATA.DATASET_SPLIT_DIR,
         inference_data_list=inference_data_list,
     )
-    inference_mode_set = AllPieceMatchingDataset_stylexd(**data_dict)
+    inference_mode_set = Dataset_GarmageSet(**data_dict)
     inference_loader = DataLoader(
         dataset=inference_mode_set,
         batch_size=1,
